@@ -985,10 +985,32 @@ const PreviewkitAppInstanceFactory = defineFactory({
     // explorer's services rail lists (PREVIEWKIT_SUMMARY_ENV_SELECT.appInstances).
     create: async (data) => {
         const suffix = randomBytes(3).toString("hex");
+        const appName = data.appName ?? `app-${suffix}`;
+        // An instance hangs off the app row, so the topology has to name this app
+        // before there is anywhere to record a deployment of it. An environment has
+        // no foreign key to its application - it is matched on repository, scoped by
+        // organization, since a repository id is unique only within an org.
+        const environment = await db.previewkitEnvironment.findUniqueOrThrow({
+            where: { id: data.environmentId },
+            select: { organizationId: true, githubRepositoryId: true },
+        });
+        const app = await db.previewkitApp.findFirstOrThrow({
+            where: {
+                name: appName,
+                config: {
+                    application: {
+                        organizationId: environment.organizationId,
+                        githubRepositoryId: environment.githubRepositoryId,
+                    },
+                },
+            },
+            select: { id: true },
+        });
         const row = await db.previewkitAppInstance.create({
             data: {
                 environmentId: data.environmentId,
-                appName: data.appName ?? `app-${suffix}`,
+                appName,
+                appId: app.id,
                 status: PreviewkitAppStatus.safeParse(data.status).data ?? "ready",
                 imageTag: data.imageTag ?? undefined,
                 url: data.url ?? undefined,

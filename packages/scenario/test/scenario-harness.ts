@@ -140,6 +140,33 @@ export class ScenarioTestHarness implements IntegrationHarness {
         return branch.id;
     }
 
+    /** The topology app a preview instance belongs to - an app instance FKs an app row. */
+    async createPreviewkitApp(applicationId: string, name: string): Promise<string> {
+        const config = await this.db.previewkitConfig.upsert({
+            where: { applicationId },
+            create: { applicationId },
+            update: {},
+            select: { id: true },
+        });
+
+        const app = await this.db.previewkitApp.create({
+            data: {
+                configId: config.id,
+                position: 0,
+                name,
+                repository: "acme/widgets",
+                path: ".",
+                port: 3000,
+                resourcesCpu: "250m",
+                resourcesMemoryRequest: "512Mi",
+                resourcesMemoryLimit: "1Gi",
+            },
+            select: { id: true },
+        });
+
+        return app.id;
+    }
+
     async createApp(
         organizationId: string,
         opts?: { webhookUrl?: string; signingSecret?: string },

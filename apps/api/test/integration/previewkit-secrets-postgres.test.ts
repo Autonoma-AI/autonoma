@@ -23,6 +23,11 @@ apiTestSuite({
             return new SecretValues(harness.db, new SecretKeys(harness.db, provider));
         }
 
+        /**
+         * An application with a preview topology. Every app name this suite seals
+         * against has to be in it: a secret is bound to its app row, so an app the
+         * topology does not name has nowhere to store one.
+         */
         async function application(harness: APITestHarness, organizationId?: string): Promise<string> {
             const app = await harness.db.application.create({
                 data: {
@@ -32,6 +37,7 @@ apiTestSuite({
                     architecture: "WEB",
                 },
             });
+            await harness.seedTopology(app.id, ["web", "one", "two", "x", "theirs"]);
             return app.id;
         }
 

@@ -1,9 +1,11 @@
 export { keyEncryptionContext } from "./key-encryption-context";
 export type { KeyProvider } from "./key-provider";
 export { KmsKeyProvider } from "./kms-key-provider";
+export { createKmsSecretKeys, type KmsSecretKeysParams } from "./kms-secret-keys";
 export { mintSecretKey, type MintSecretKeyParams } from "./mint-secret-key";
 export { NoPrimaryEncryptionKeyError } from "./no-primary-encryption-key-error";
 export { PreviewSecrets, type PreviewSecretsConfig, type PreviewTarget } from "./preview-secrets";
+export { resealSecrets, type ResealOutcome } from "./reseal-secrets";
 export { secretFingerprint } from "./secret-fingerprint";
 export { SecretKeys } from "./secret-keys";
 export {

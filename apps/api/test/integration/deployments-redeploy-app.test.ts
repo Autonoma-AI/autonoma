@@ -64,6 +64,9 @@ async function createRedeployFixture(
             githubRepositoryId: applicationRepositoryId,
         },
     });
+    // The instance below hangs off an app row, so the application needs a topology
+    // naming "web" before the environment can record a deployment of it.
+    const webAppId = (await harness.seedTopology(application.id, ["web"])).get("web")!;
     const repoFullName = `Autonoma-AI/redeploy-${prNumber}`;
     const namespace = `preview-redeploy-pr-${prNumber}`;
     const environment = await harness.db.previewkitEnvironment.create({
@@ -76,7 +79,7 @@ async function createRedeployFixture(
             githubRepositoryId: environmentRepositoryId,
             organizationId: harness.organizationId,
             status: "ready",
-            appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+            appInstances: { create: [{ appName: "web", appId: webAppId, status: "ready", port: 3000 }] },
         },
     });
 

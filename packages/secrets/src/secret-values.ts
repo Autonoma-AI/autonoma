@@ -4,6 +4,34 @@ import { describeSecretBundle, type SecretBundle, scopeIn } from "@autonoma/util
 import { secretFingerprint } from "./secret-fingerprint";
 import type { SecretKeys } from "./secret-keys";
 
+/** A row's stored app link, as far as opening its envelope needs it. */
+interface RowAppLink {
+    appId: string | null;
+    app: { config: { applicationId: string } } | null;
+}
+
+/**
+ * The bundle as the envelope on this row was actually sealed under.
+ *
+ * A v2 envelope is bound to the app ROW, so opening it needs that id rather than
+ * whichever app carries the name today - that is what lets a value survive a
+ * rename. But the id then comes from the row instead of from the caller's bundle,
+ * and v2's authenticated data no longer names the application, so a row whose
+ * `appId` points into another tenant would otherwise decrypt happily under this
+ * tenant's bundle. Checking the link back to the application restores what v1 got
+ * from having the application in the AAD: a ciphertext cannot be moved between
+ * tenants by writing to the database.
+ */
+function sealedUnder(bundle: SecretBundle, row: RowAppLink): SecretBundle {
+    if (row.app != null && row.app.config.applicationId !== bundle.applicationId) {
+        throw new Error(
+            "Refusing to open a secret whose app belongs to a different application. " +
+                "The row's app link and its application disagree, which no legitimate write produces.",
+        );
+    }
+    return { ...bundle, appId: row.appId ?? undefined };
+}
+
 /** How much of a value's length `maskedLength` will admit to, so long values do not leak their size. */
 const MAX_MASKED_LENGTH = 32;
 
@@ -110,7 +138,14 @@ export class SecretValues {
             extra: { bundle: describeSecretBundle(bundle), count: items.length, force: options.force === true },
         });
 
-        const [cipher, sealed] = await Promise.all([this.keys.primary(), this.sealedState(bundle)]);
+        const [cipher, sealed, appId] = await Promise.all([
+            this.keys.primary(),
+            this.sealedState(bundle),
+            this.requireAppId(bundle),
+        ]);
+        // Sealing resolves the app from the bundle itself, so there is no row to
+        // cross-check - the id is the one this application's topology names.
+        const scope: SecretBundle = { ...bundle, appId };
         const created = sealed.size === 0;
         const changed = items.some((item) => sealed.get(item.key)?.fingerprint !== secretFingerprint(item.value));
         const pending: readonly SecretItem[] =
@@ -127,7 +162,7 @@ export class SecretValues {
 
         const rows = pending.map((item) => ({
             key: item.key,
-            envelope: cipher.encrypt(item.value, scopeIn(bundle, item.key)),
+            envelope: cipher.encrypt(item.value, scopeIn(scope, item.key)),
             encryptionKeyId: cipher.keyId,
             fingerprint: secretFingerprint(item.value),
             maskedLength: Math.min(item.value.length, MAX_MASKED_LENGTH),
@@ -143,8 +178,8 @@ export class SecretValues {
                             key: row.key,
                         },
                     },
-                    create: { applicationId: bundle.applicationId, appName: bundle.appName, ...row },
-                    update: row,
+                    create: { applicationId: bundle.applicationId, appName: bundle.appName, appId, ...row },
+                    update: { ...row, appId },
                 }),
             ),
             {
@@ -163,6 +198,27 @@ export class SecretValues {
             },
         });
         return { created, changed, written };
+    }
+
+    /**
+     * The app row a bundle belongs to. Required to seal: a v2 envelope is bound to
+     * this id, so a value written without one could never be opened again.
+     *
+     * Refusing here rather than writing a detached row is deliberate - the caller
+     * has asked to store a secret for an app that is not in the topology, and the
+     * honest answer is that there is nowhere to put it.
+     */
+    private async requireAppId(bundle: SecretBundle): Promise<string> {
+        const app = await this.db.previewkitApp.findFirst({
+            where: { name: bundle.appName, config: { applicationId: bundle.applicationId } },
+            select: { id: true },
+        });
+        if (app == null) {
+            throw new Error(
+                `Cannot seal a secret for app "${bundle.appName}": it is not in the application's preview topology.`,
+            );
+        }
+        return app.id;
     }
 
     /**
@@ -214,7 +270,12 @@ export class SecretValues {
     async getAll(bundle: SecretBundle): Promise<Record<string, string> | undefined> {
         const rows = await this.db.previewkitSecret.findMany({
             where: { applicationId: bundle.applicationId, appName: bundle.appName },
-            select: { key: true, envelope: true },
+            select: {
+                key: true,
+                envelope: true,
+                appId: true,
+                app: { select: { config: { select: { applicationId: true } } } },
+            },
         });
 
         if (rows.length === 0) return undefined;
@@ -226,7 +287,7 @@ export class SecretValues {
         const opened: Record<string, string> = {};
         for (const row of rows) {
             const cipher = await this.keys.forEnvelope(row.envelope);
-            opened[row.key] = cipher.decrypt(row.envelope, scopeIn(bundle, row.key));
+            opened[row.key] = cipher.decrypt(row.envelope, scopeIn(sealedUnder(bundle, row), row.key));
         }
         return opened;
     }
@@ -241,14 +302,14 @@ export class SecretValues {
                     key,
                 },
             },
-            select: { envelope: true },
+            select: { envelope: true, appId: true, app: { select: { config: { select: { applicationId: true } } } } },
         });
 
         if (row == null) return undefined;
 
         this.logger.info("Opening a secret value", { extra: { bundle: describeSecretBundle(bundle), key } });
         const cipher = await this.keys.forEnvelope(row.envelope);
-        return cipher.decrypt(row.envelope, scopeIn(bundle, key));
+        return cipher.decrypt(row.envelope, scopeIn(sealedUnder(bundle, row), key));
     }
 
     /**

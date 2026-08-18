@@ -76,6 +76,43 @@ class PreviewBuildStatusHarness implements IntegrationHarness {
         const org = await this.db.organization.create({ data: { name: `Org ${n}`, slug: `org-${n}` } });
         const repoFullName = `acme/repo-${n}`;
         const prNumber = n + 1;
+        const githubRepositoryId = 2_000 + n;
+
+        // An app instance hangs off an app row, so the fixture needs the application
+        // and topology its apps belong to, not just the environment.
+        const appIds = new Map<string, string>();
+        if (input.appInstances != null) {
+            const application = await this.db.application.create({
+                data: {
+                    name: `App ${n}`,
+                    slug: `app-env-${n}`,
+                    architecture: ApplicationArchitecture.WEB,
+                    organizationId: org.id,
+                    githubRepositoryId,
+                },
+            });
+            const config = await this.db.previewkitConfig.create({
+                data: { applicationId: application.id },
+                select: { id: true },
+            });
+            for (const [position, app] of input.appInstances.entries()) {
+                const row = await this.db.previewkitApp.create({
+                    data: {
+                        configId: config.id,
+                        position,
+                        name: app.appName,
+                        repository: repoFullName,
+                        path: ".",
+                        port: 3000,
+                        resourcesCpu: "250m",
+                        resourcesMemoryRequest: "512Mi",
+                        resourcesMemoryLimit: "1Gi",
+                    },
+                    select: { id: true },
+                });
+                appIds.set(app.appName, row.id);
+            }
+        }
 
         await this.db.previewkitEnvironment.create({
             data: {
@@ -85,6 +122,7 @@ class PreviewBuildStatusHarness implements IntegrationHarness {
                 headSha: input.headSha,
                 headRef: `feature/${n}`,
                 organizationId: org.id,
+                githubRepositoryId,
                 status: input.status,
                 urls: input.urls ?? {},
                 resolvedConfig: RESOLVED_CONFIG,
@@ -94,6 +132,7 @@ class PreviewBuildStatusHarness implements IntegrationHarness {
                           appInstances: {
                               create: input.appInstances.map((app) => ({
                                   appName: app.appName,
+                                  appId: appIds.get(app.appName)!,
                                   status: app.status,
                                   url: app.url ?? null,
                                   port: 3000,

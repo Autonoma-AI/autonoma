@@ -1205,9 +1205,11 @@ apiTestSuite({
 
         test("redeployApp reconstructs the target, namespace, app + mode", async ({
             harness,
-            seedResult: { service },
+            seedResult: { app, service },
         }) => {
             harness.triggerWorkflow.mockClear();
+            // An instance hangs off the app row, so the topology has to name "web".
+            const webAppId = (await harness.seedTopology(app.id, ["web"])).get("web")!;
             await harness.db.previewkitEnvironment.create({
                 data: {
                     namespace: "preview-acme-web-pr-20",
@@ -1218,7 +1220,7 @@ apiTestSuite({
                     githubRepositoryId: REPO_ID,
                     status: "ready",
                     organizationId: harness.organizationId,
-                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                    appInstances: { create: [{ appName: "web", appId: webAppId, status: "ready", port: 3000 }] },
                 },
             });
 
@@ -1241,7 +1243,8 @@ apiTestSuite({
             });
         });
 
-        test("redeployApp passes restart mode through", async ({ harness, seedResult: { service } }) => {
+        test("redeployApp passes restart mode through", async ({ harness, seedResult: { app, service } }) => {
+            const webAppId = (await harness.seedTopology(app.id, ["web"])).get("web")!;
             harness.triggerWorkflow.mockClear();
             await harness.db.previewkitEnvironment.create({
                 data: {
@@ -1253,7 +1256,7 @@ apiTestSuite({
                     githubRepositoryId: REPO_ID,
                     status: "ready",
                     organizationId: harness.organizationId,
-                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                    appInstances: { create: [{ appName: "web", appId: webAppId, status: "ready", port: 3000 }] },
                 },
             });
 
@@ -1266,7 +1269,8 @@ apiTestSuite({
             );
         });
 
-        test("redeployApp rejects an app not in the environment", async ({ harness, seedResult: { service } }) => {
+        test("redeployApp rejects an app not in the environment", async ({ harness, seedResult: { app, service } }) => {
+            const webAppId = (await harness.seedTopology(app.id, ["web"])).get("web")!;
             await harness.db.previewkitEnvironment.create({
                 data: {
                     namespace: "preview-acme-web-pr-22",
@@ -1277,7 +1281,7 @@ apiTestSuite({
                     githubRepositoryId: REPO_ID,
                     status: "ready",
                     organizationId: harness.organizationId,
-                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                    appInstances: { create: [{ appName: "web", appId: webAppId, status: "ready", port: 3000 }] },
                 },
             });
 
@@ -1288,7 +1292,8 @@ apiTestSuite({
             ).rejects.toThrow(NotFoundError);
         });
 
-        test("redeployApp rejects a torn-down environment", async ({ harness, seedResult: { service } }) => {
+        test("redeployApp rejects a torn-down environment", async ({ harness, seedResult: { app, service } }) => {
+            const webAppId = (await harness.seedTopology(app.id, ["web"])).get("web")!;
             await harness.db.previewkitEnvironment.create({
                 data: {
                     namespace: "preview-acme-web-pr-23",
@@ -1299,7 +1304,7 @@ apiTestSuite({
                     githubRepositoryId: REPO_ID,
                     status: "torn_down",
                     organizationId: harness.organizationId,
-                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                    appInstances: { create: [{ appName: "web", appId: webAppId, status: "ready", port: 3000 }] },
                 },
             });
 
@@ -1310,7 +1315,8 @@ apiTestSuite({
             ).rejects.toThrow(ConflictError);
         });
 
-        test("redeployApp scopes to the caller's organization", async ({ harness, seedResult: { service } }) => {
+        test("redeployApp scopes to the caller's organization", async ({ harness, seedResult: { app, service } }) => {
+            const webAppId = (await harness.seedTopology(app.id, ["web"])).get("web")!;
             await harness.db.previewkitEnvironment.create({
                 data: {
                     namespace: "preview-acme-web-pr-24",
@@ -1321,7 +1327,7 @@ apiTestSuite({
                     githubRepositoryId: REPO_ID,
                     status: "ready",
                     organizationId: harness.organizationId,
-                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                    appInstances: { create: [{ appName: "web", appId: webAppId, status: "ready", port: 3000 }] },
                 },
             });
 
@@ -1406,7 +1412,11 @@ apiTestSuite({
             }
         });
 
-        test("redeployApp is blocked the same way as deploy when the org is out of credits", async ({ harness }) => {
+        test("redeployApp is blocked the same way as deploy when the org is out of credits", async ({
+            harness,
+            seedResult: { app },
+        }) => {
+            const webAppId = (await harness.seedTopology(app.id, ["web"])).get("web")!;
             const service = gateTestService(harness);
             await harness.db.previewkitEnvironment.create({
                 data: {
@@ -1418,7 +1428,7 @@ apiTestSuite({
                     githubRepositoryId: REPO_ID,
                     status: "ready",
                     organizationId: harness.organizationId,
-                    appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
+                    appInstances: { create: [{ appName: "web", appId: webAppId, status: "ready", port: 3000 }] },
                 },
             });
             harness.triggerWorkflow.mockClear();

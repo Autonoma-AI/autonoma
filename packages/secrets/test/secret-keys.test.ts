@@ -5,7 +5,13 @@ import { SecretKeys } from "../src/secret-keys";
 import { FakeKeyProvider } from "./fake-key-provider";
 import { type SecretsHarness, secretsSuite } from "./harness";
 
-const SCOPE: SecretScope = { kind: "app", applicationId: "app_123", appName: "web", key: "DATABASE_URL" };
+const SCOPE: SecretScope = {
+    kind: "app",
+    applicationId: "app_123",
+    appName: "web",
+    appId: "pkapp_123",
+    key: "DATABASE_URL",
+};
 
 function keys(harness: SecretsHarness): SecretKeys {
     return new SecretKeys(harness.db, harness.provider);

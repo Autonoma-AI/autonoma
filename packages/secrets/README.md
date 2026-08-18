@@ -10,7 +10,7 @@ Each stored envelope names the key that sealed it, so old values keep resolving 
 
 ## `SecretValues`
 
-Writes secret values into `previewkit_secret`, sealed with the current encryption key. One row is one secret: an env-var name and its envelope, keyed `(applicationId, appName, key)`. A **bundle** is not a row - it is the set of rows sharing a scope, so a bundle exists exactly as long as it holds a key and "registered but empty" is not representable.
+Writes secret values into `previewkit_secret`, sealed with the current encryption key. One row is one secret: an env-var name and its envelope, hanging off the `PreviewkitApp` row it belongs to. A **bundle** is not a row - it is the set of rows sharing a scope, so a bundle exists exactly as long as it holds a key and "registered but empty" is not representable.
 
 ```ts
 const values = new SecretValues(db, keys);
@@ -19,7 +19,9 @@ await values.put({ kind: "app", applicationId, appName }, [{ key: "DATABASE_URL"
 await values.remove({ kind: "app", applicationId, appName }, "DATABASE_URL");
 ```
 
-`put` merges: keys it was not given are left alone, matching the authoritative store, so writing one key never drops the rest. Values are bound to their own row through the scope derived by `scopeIn(bundle, key)`, so a ciphertext copied into another application, another bundle, or another key fails to decrypt rather than leaking.
+`put` merges: keys it was not given are left alone, matching the authoritative store, so writing one key never drops the rest. Values are bound to their own row through the scope derived by `scopeIn(bundle, key)`, so a ciphertext copied onto another app row, or under another key name, fails to decrypt rather than leaking.
+
+A `v2` envelope authenticates `(appId, key)` - the app row's id, not the application's. That is what lets an app be renamed without shredding its secrets, and it is why the application check is enforced here rather than by the GCM tag: `SecretValues` refuses to open a row whose app belongs to a different application. An app row belongs to exactly one application, so the two together still bind a value to one tenant - one of them just costs a database read.
 
 ### `updatedAt` means "last changed", and callers rely on it
 
@@ -144,10 +146,9 @@ The AWS secrets themselves still exist. Dropping the reference did not delete th
 Resolves the cipher for an operation, unwrapping keys on demand.
 
 ```ts
-import { KMSClient } from "@aws-sdk/client-kms";
-import { KmsKeyProvider, SecretKeys } from "@autonoma/secrets";
+import { createKmsSecretKeys } from "@autonoma/secrets";
 
-const keys = new SecretKeys(db, new KmsKeyProvider(new KMSClient({ region }), env.PREVIEWKIT_SECRETS_CMK));
+const keys = createKmsSecretKeys({ db, cmk: env.PREVIEWKIT_SECRETS_CMK, region });
 
 const sealed = (await keys.primary()).encrypt(value, scope); // writing
 const opened = (await keys.forEnvelope(sealed)).decrypt(sealed, scope); // reading
@@ -180,6 +181,29 @@ No coordinated rollout, no ordering hazard, no window where one process can writ
 **Retired rows are never deleted.** The row is what reserves its key id, and a key id has to stay unambiguous forever because every envelope names one; keeping the row is what makes `mintSecretKey` reject a reused id. A retired wrapped key is inert without `kms:Decrypt` and nothing is encrypted under it any more, so it costs a row and buys an invariant. If a straggler value does turn up later, it still opens.
 
 Deleting a row anyway (hand surgery, not the runbook) makes any value still sealed under it unreadable, and the error names the missing key id. `SecretKeys` will not serve stale material if that id is then re-minted, but the values sealed under the replaced key are gone.
+
+### Re-sealing v1 envelopes as v2
+
+`v1` bound `(applicationId, appName, key)`, so renaming an app made every value it
+owned unreadable. `v2` binds `(appId, key)` instead. Authenticated data is not stored
+anywhere - it is rebuilt by the caller at open time - so the only way to change it is
+to open each value under the old scope and seal it again under the new one:
+
+```bash
+DATABASE_URL=... PREVIEWKIT_SECRETS_CMK=... pnpm tsx scripts/reseal-previewkit-secrets.ts
+```
+
+Idempotent, and safe to run while writes are in flight: a row already on `v2` is not
+selected, and a row is written only after its value has been opened and re-sealed.
+
+A row that will not open is counted and **left byte-for-byte alone**. Overwriting it
+would make an unrecoverable value permanent and deleting it would hide that a value
+nobody can read exists at all, so the script exits non-zero and names them instead.
+In practice that means an app renamed while `v1` was still sealing - the corruption
+the move exists to end.
+
+Both versions stay readable until every row is on `v2`; `--verify` reports how many
+are left, and retiring `v1` is gated on that reaching zero.
 
 ## Reading or writing one value by hand
 

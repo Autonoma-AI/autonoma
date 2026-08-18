@@ -1,6 +1,7 @@
 import { createClient, type PrismaClient } from "@autonoma/db";
 import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import type { TestAPI } from "vitest";
+import { keyEncryptionContext } from "../src/key-encryption-context";
 import { FakeKeyProvider } from "./fake-key-provider";
 
 export class SecretsHarness implements IntegrationHarness {
@@ -28,6 +29,8 @@ export class SecretsHarness implements IntegrationHarness {
         // Secrets first: their encryptionKey FK is Restrict, so key rows cannot go while
         // any value still references one - which is the point of that constraint.
         await this.db.previewkitSecret.deleteMany();
+        await this.db.previewkitApp.deleteMany();
+        await this.db.previewkitConfig.deleteMany();
         await this.db.previewkitEncryptionKey.deleteMany();
         await this.db.application.deleteMany();
         await this.db.organization.deleteMany();
@@ -37,7 +40,12 @@ export class SecretsHarness implements IntegrationHarness {
         // No-op
     }
 
-    /** An app-scoped bundle identity, with the Application its rows hang off. */
+    /**
+     * An app-scoped bundle identity, with the Application AND the preview topology
+     * its rows hang off. The app row is not optional scaffolding: a secret is sealed
+     * against it, so a bundle whose app is not in the topology has nowhere to store
+     * anything and `SecretValues` refuses it.
+     */
     async createAppBundle(appName = "web"): Promise<AppBundle> {
         const organizationId = await this.createOrg();
         const application = await this.db.application.create({
@@ -48,8 +56,49 @@ export class SecretsHarness implements IntegrationHarness {
                 architecture: "WEB",
             },
         });
+        const appId = await this.createTopologyApp(application.id, appName);
 
-        return { kind: "app", applicationId: application.id, appName };
+        // Carries the app id so a test can open a value the way the store does -
+        // against the row the envelope was sealed under.
+        return { kind: "app", applicationId: application.id, appName, appId };
+    }
+
+    /**
+     * The raw material behind a stored encryption key. Only a migration test needs
+     * this - it is how you build a cipher that seals the OLD envelope version, which
+     * nothing in the codebase can do any more.
+     */
+    async keyMaterial(keyId: string): Promise<Uint8Array> {
+        const row = await this.db.previewkitEncryptionKey.findUniqueOrThrow({
+            where: { id: keyId },
+            select: { wrap: true },
+        });
+        return this.provider.unwrap(row.wrap, keyEncryptionContext(keyId));
+    }
+
+    /** Adds `appName` to the application's preview topology, creating the config if needed. */
+    async createTopologyApp(applicationId: string, appName: string): Promise<string> {
+        const config = await this.db.previewkitConfig.upsert({
+            where: { applicationId },
+            create: { applicationId },
+            update: {},
+            select: { id: true },
+        });
+        const app = await this.db.previewkitApp.create({
+            data: {
+                configId: config.id,
+                position: 0,
+                name: appName,
+                repository: "acme/web",
+                path: ".",
+                port: 3000,
+                resourcesCpu: "250m",
+                resourcesMemoryRequest: "512Mi",
+                resourcesMemoryLimit: "1Gi",
+            },
+            select: { id: true },
+        });
+        return app.id;
     }
 
     private async createOrg(): Promise<string> {
@@ -60,7 +109,7 @@ export class SecretsHarness implements IntegrationHarness {
     }
 }
 
-type AppBundle = { kind: "app"; applicationId: string; appName: string };
+type AppBundle = { kind: "app"; applicationId: string; appName: string; appId: string };
 
 type SecretsSuiteContext = { harness: SecretsHarness; seedResult: undefined };
 

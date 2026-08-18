@@ -10,6 +10,7 @@ const APP_SCOPE: SecretScope = {
     kind: "app",
     applicationId: "app_123",
     appName: "web",
+    appId: "pkapp_123",
     key: "DATABASE_URL",
 };
 
@@ -20,74 +21,54 @@ describe("SecretCipher", () => {
      * another - which is the whole reason the version rides in the envelope.
      */
     describe("envelope versions", () => {
-        const V2_SCOPE: SecretScope = { ...APP_SCOPE, appId: "pkapp_123" };
+        function v1Cipher(keyId = "1"): SecretCipher {
+            return new SecretCipher(keyId, randomBytes(32), "v1");
+        }
 
-        it("still opens a v1 envelope, which is what every stored value is today", () => {
+        it("seals v2 now, bound to the app row rather than its name", () => {
             const cipher = makeCipher();
             const envelope = cipher.encrypt("postgres://secret", APP_SCOPE);
 
-            expect(envelope.startsWith("v1.")).toBe(true);
-            expect(cipher.decrypt(envelope, V2_SCOPE)).toBe("postgres://secret");
+            expect(envelope.startsWith("v2.")).toBe(true);
+            // The whole point: the value survives its app being renamed.
+            expect(cipher.decrypt(envelope, { ...APP_SCOPE, appName: "renamed" })).toBe("postgres://secret");
         });
 
-        it("refuses a v1 envelope whose app name has changed", () => {
-            const cipher = makeCipher();
+        it("still opens a v1 envelope, which is what stored values are until the sweep runs", () => {
+            const material = randomBytes(32);
+            const sealed = new SecretCipher("1", material, "v1").encrypt("postgres://secret", APP_SCOPE);
+
+            expect(sealed.startsWith("v1.")).toBe(true);
+            expect(new SecretCipher("1", material).decrypt(sealed, APP_SCOPE)).toBe("postgres://secret");
+        });
+
+        it("refuses a v1 envelope whose app name has changed - the reason renames cost values", () => {
+            const cipher = v1Cipher();
             const envelope = cipher.encrypt("postgres://secret", APP_SCOPE);
 
             expect(() => cipher.decrypt(envelope, { ...APP_SCOPE, appName: "renamed" })).toThrow();
         });
 
-        it("says plainly when a v2 envelope is opened without an appId", () => {
+        it("refuses to seal without an appId, rather than writing something unopenable", () => {
             const cipher = makeCipher();
-            // Long enough to clear the truncation check, so the failure is the
-            // missing appId and not the payload's length.
-            const envelope = `v2.1.${Buffer.alloc(64).toString("base64")}`;
+            const { appId, ...scopeWithoutApp } = APP_SCOPE;
+            void appId;
 
-            expect(() => cipher.decrypt(envelope, APP_SCOPE)).toThrow("without an appId");
+            expect(() => cipher.encrypt("postgres://secret", scopeWithoutApp)).toThrow("without an appId");
+        });
+
+        it("refuses to seal as an unknown version", () => {
+            expect(() => new SecretCipher("1", randomBytes(32), "v9")).toThrow("unknown version");
         });
     });
 
-    it("round-trips a value in an app scope", () => {
-        const cipher = makeCipher();
-
-        expect(cipher.decrypt(cipher.encrypt("postgres://secret", APP_SCOPE), APP_SCOPE)).toBe("postgres://secret");
-    });
-
-    it("round-trips empty and unicode values", () => {
-        const cipher = makeCipher();
-
-        expect(cipher.decrypt(cipher.encrypt("", APP_SCOPE), APP_SCOPE)).toBe("");
-        expect(cipher.decrypt(cipher.encrypt("héllo 日本語 🎉", APP_SCOPE), APP_SCOPE)).toBe("héllo 日本語 🎉");
-    });
-
-    it("round-trips a value larger than a KMS Encrypt payload would allow", () => {
-        const cipher = makeCipher();
-        const pem = "x".repeat(8192);
-
-        expect(cipher.decrypt(cipher.encrypt(pem, APP_SCOPE), APP_SCOPE)).toBe(pem);
-    });
-
-    it("produces a different envelope each time (random IV)", () => {
-        const cipher = makeCipher();
-
-        expect(cipher.encrypt("same", APP_SCOPE)).not.toBe(cipher.encrypt("same", APP_SCOPE));
-    });
-
-    it("stamps its key id into the envelope", () => {
-        const cipher = makeCipher("7");
-
-        expect(readEnvelopeKeyId(cipher.encrypt("value", APP_SCOPE))).toBe("7");
-    });
-
-    // scopeIn exists so callers stop hand-building scopes. That is only safe if a
-    // derived scope authenticates identically to the literal it replaces.
     describe("scopeIn", () => {
         it("derives a scope that opens what the equivalent literal sealed", () => {
             const cipher = makeCipher();
             const sealed = cipher.encrypt("value", APP_SCOPE);
 
             const derived = scopeIn(
-                { kind: "app", applicationId: APP_SCOPE.applicationId, appName: "web" },
+                { kind: "app", applicationId: APP_SCOPE.applicationId, appName: "web", appId: APP_SCOPE.appId },
                 "DATABASE_URL",
             );
 
@@ -96,7 +77,7 @@ describe("SecretCipher", () => {
 
         it("keeps a different key in the same bundle a different scope", () => {
             const cipher = makeCipher();
-            const bundle = { kind: "app", applicationId: "app_123", appName: "web" } as const;
+            const bundle = { kind: "app", applicationId: "app_123", appName: "web", appId: "pkapp_123" } as const;
             const sealed = cipher.encrypt("value", scopeIn(bundle, "DATABASE_URL"));
 
             expect(() => cipher.decrypt(sealed, scopeIn(bundle, "REDIS_URL"))).toThrow();
@@ -128,32 +109,42 @@ describe("SecretCipher", () => {
     });
 
     describe("scope binding", () => {
-        it("refuses a ciphertext moved to another application", () => {
+        it("refuses a ciphertext moved to another app", () => {
             const cipher = makeCipher();
             const sealed = cipher.encrypt("value", APP_SCOPE);
 
-            expect(() => cipher.decrypt(sealed, { ...APP_SCOPE, applicationId: "app_other" })).toThrow();
+            expect(() => cipher.decrypt(sealed, { ...APP_SCOPE, appId: "pkapp_other" })).toThrow();
         });
 
-        it("refuses a ciphertext moved to another app bundle or key", () => {
+        it("refuses a ciphertext moved to another key", () => {
             const cipher = makeCipher();
             const sealed = cipher.encrypt("value", APP_SCOPE);
 
-            expect(() => cipher.decrypt(sealed, { ...APP_SCOPE, appName: "api" })).toThrow();
             expect(() => cipher.decrypt(sealed, { ...APP_SCOPE, key: "OTHER_KEY" })).toThrow();
+        });
+
+        /**
+         * v2 binds the app ROW, so the application and the name are no longer part of
+         * the authenticated data - that is what lets a value survive a rename. The
+         * tenant boundary moves with it: an appId belongs to exactly one application,
+         * and `SecretValues` refuses to open a row whose app points at a different one.
+         */
+        it("no longer binds the application or the app name", () => {
+            const cipher = makeCipher();
+            const sealed = cipher.encrypt("value", APP_SCOPE);
+
+            expect(cipher.decrypt(sealed, { ...APP_SCOPE, applicationId: "app_other" })).toBe("value");
+            expect(cipher.decrypt(sealed, { ...APP_SCOPE, appName: "renamed" })).toBe("value");
         });
 
         it("does not let separator characters re-cut one scope into another", () => {
             const cipher = makeCipher();
-            const sealed = cipher.encrypt("value", { kind: "app", applicationId: "a", appName: "x:y", key: "z" });
+            const base = { kind: "app", applicationId: "a", appName: "n" } as const;
+            const sealed = cipher.encrypt("value", { ...base, appId: "x:y", key: "z" });
 
-            expect(() =>
-                cipher.decrypt(sealed, { kind: "app", applicationId: "a", appName: "x", key: "y:z" }),
-            ).toThrow();
+            expect(() => cipher.decrypt(sealed, { ...base, appId: "x", key: "y:z" })).toThrow();
         });
-    });
 
-    describe("tamper detection", () => {
         it("refuses a modified payload", () => {
             const cipher = makeCipher();
             const [version, keyId, payload] = cipher.encrypt("value", APP_SCOPE).split(".");

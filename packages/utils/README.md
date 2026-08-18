@@ -45,26 +45,35 @@ takeMemorySnapshot();
 
 AES-256-GCM over previewkit secret values held in Postgres. Two things separate it from `EncryptionHelper`:
 
-- **The envelope names its key generation.** `v1.<keyId>.<base64(iv || ciphertext || tag)>`. A cipher holds exactly one generation, so stored values stay readable across a rotation: resolve the cipher for an envelope's key id rather than expecting one key to open everything. `EncryptionHelper`'s envelope is bare base64 and names nothing, and it stays that way because its format is already written into columns across the schema (Vercel access tokens, scenario signing secrets, preview bypass tokens).
+- **The envelope names its key generation and its binding.** `v2.<keyId>.<base64(iv || ciphertext || tag)>`. A cipher holds exactly one generation, so stored values stay readable across a rotation: resolve the cipher for an envelope's key id rather than expecting one key to open everything. `EncryptionHelper`'s envelope is bare base64 and names nothing, and it stays that way because its format is already written into columns across the schema (Vercel access tokens, scenario signing secrets, preview bypass tokens).
 - **The owning row is authenticated.** The `SecretScope` is bound as GCM additional authenticated data, so a ciphertext only decrypts in the exact row it was sealed for. Someone with write access to the database cannot move another tenant's ciphertext into their own row and read it back through the API.
+
+The leading `v` is the envelope version, and it selects what is authenticated - not just which key opens it:
+
+| Version | Authenticated data | Survives a rename? |
+| --- | --- | --- |
+| `v1` | `kind, applicationId, appName, key` | No - renaming the app breaks every value it owns |
+| `v2` | `kind, appId, key` | Yes - bound to the app row's id, which a rename does not change |
+
+`v2` is what everything seals today; `v1` is readable only so the migration in `@autonoma/secrets` can open old rows and seal them again. Because `v2` no longer authenticates `applicationId`, the tenant check moved to the row: `SecretValues` refuses to open a secret whose app belongs to a different application. That check is a database read rather than a GCM tag, but the tag still binds the value to one app row, and an app row belongs to exactly one application.
 
 ```ts
 import { SecretCipher, readEnvelopeKeyId } from "@autonoma/utils";
 
 const cipher = new SecretCipher(keyId, material);
 
-const sealed = cipher.encrypt(value, { kind: "app", applicationId, appName, key });
-const value = cipher.decrypt(sealed, { kind: "app", applicationId, appName, key });
+const sealed = cipher.encrypt(value, { kind: "app", applicationId, appName, appId, key });
+const value = cipher.decrypt(sealed, { kind: "app", applicationId, appName, appId, key });
 ```
 
-Scopes are `{ kind: "app", applicationId, appName, key }` for `PreviewkitSecret` rows. Passing a scope that differs in any field fails the GCM tag check, indistinguishable from tampering. So does handing an envelope to a cipher for a different generation, though that fails with an explicit message instead.
+Scopes are `{ kind: "app", applicationId, appName, appId, key }` for `PreviewkitSecret` rows. A scope carries every field either version needs; the cipher picks the subset its version authenticates. Passing a scope that differs in an authenticated field fails the GCM tag check, indistinguishable from tampering. So does handing an envelope to a cipher for a different generation, though that fails with an explicit message instead.
 
 `readEnvelopeKeyId` reads which generation sealed an envelope without needing any key - that is how a caller knows which one to fetch and unwrap.
 
 Callers hold a `SecretBundle` (a scope without the key) and derive each value's scope with `scopeIn(bundle, key)`, so the authenticated data is assembled in one place instead of being spelled out per call site where a field could quietly be missed:
 
 ```ts
-const bundle: SecretBundle = { kind: "app", applicationId, appName };
+const bundle: SecretBundle = { kind: "app", applicationId, appName, appId };
 
 cipher.encrypt(value, scopeIn(bundle, "DATABASE_URL"));
 ```

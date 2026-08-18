@@ -441,6 +441,8 @@ integrationTestSuite({
                 where: { applicationId: appId },
                 data: { step: "previewkit_deploying", previewVerificationStatus: "building" },
             });
+            // Build rows hang off the app row, so both apps of this topology need one.
+            const appIds = await harness.seedTopology(appId, ["web", "api-app"]);
             const environment = await harness.db.previewkitEnvironment.create({
                 data: {
                     namespace: `preview-topology-${appId}`,
@@ -474,12 +476,14 @@ integrationTestSuite({
                         create: [
                             {
                                 appName: "web",
+                                appId: appIds.get("web")!,
                                 status: "failed",
                                 durationMs: 1200,
                                 error: 'No repo directory found for app "web"',
                             },
                             {
                                 appName: "api-app",
+                                appId: appIds.get("api-app")!,
                                 status: "failed",
                                 durationMs: 800,
                                 error: 'No repo directory found for app "api-app"',

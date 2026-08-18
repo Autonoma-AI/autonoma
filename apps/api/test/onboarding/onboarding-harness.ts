@@ -147,6 +147,42 @@ export class OnboardingTestHarness implements IntegrationHarness {
     }
 
     /**
+     * Gives an application a preview topology naming `appNames`, and answers with
+     * name -> app row id. Secrets and app instances hang off the app row, so a test
+     * seeding either needs the topology first.
+     */
+    async seedTopology(applicationId: string, appNames: readonly string[]): Promise<Map<string, string>> {
+        const config = await this.db.previewkitConfig.upsert({
+            where: { applicationId },
+            create: { applicationId },
+            update: {},
+            select: { id: true },
+        });
+
+        const ids = new Map<string, string>();
+        for (const [position, name] of appNames.entries()) {
+            const app = await this.db.previewkitApp.upsert({
+                where: { configId_name: { configId: config.id, name } },
+                create: {
+                    configId: config.id,
+                    position,
+                    name,
+                    repository: "acme/web",
+                    path: ".",
+                    port: 3000,
+                    resourcesCpu: "250m",
+                    resourcesMemoryRequest: "512Mi",
+                    resourcesMemoryLimit: "1Gi",
+                },
+                update: {},
+                select: { id: true },
+            });
+            ids.set(name, app.id);
+        }
+        return ids;
+    }
+
+    /**
      * Makes the application's primary repository resolvable WITHOUT a GitHub
      * service: stamps a fresh `githubRepositoryId` and seeds one
      * `PreviewkitEnvironment` row carrying the full name, so

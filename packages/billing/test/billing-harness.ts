@@ -1,4 +1,4 @@
-import { type PrismaClient, PreviewkitStatus, createClient } from "@autonoma/db";
+import { ApplicationArchitecture, type PrismaClient, PreviewkitStatus, createClient } from "@autonoma/db";
 import { createTestDatabase, type IntegrationHarness } from "@autonoma/integration-test";
 import { AutoTopUpService } from "../src/auto-topup.service";
 import { EnabledBillingService } from "../src/billing-enabled.service";
@@ -6,6 +6,10 @@ import { BillingPricingService } from "../src/billing-pricing.service";
 import { CreditsService } from "../src/credits.service";
 import type { BillingService } from "../src/types";
 import { VercelOverageService } from "../src/vercel-overage.service";
+
+const REPO_FULL_NAME = "test-org/repo";
+/** One repository behind every environment here, so an org has exactly one application. */
+const REPOSITORY_ID = 4242;
 
 export interface CreatePreviewkitEnvironmentInput {
     organizationId: string;
@@ -33,6 +37,7 @@ export class BillingTestHarness implements IntegrationHarness {
     public readonly billingService: BillingService;
 
     private previewkitEnvironmentSeq = 0;
+    private previewkitAppSeq = 0;
 
     constructor(db: PrismaClient) {
         this.db = db;
@@ -97,7 +102,8 @@ export class BillingTestHarness implements IntegrationHarness {
             data: {
                 organizationId: input.organizationId,
                 namespace,
-                repoFullName: "test-org/repo",
+                repoFullName: REPO_FULL_NAME,
+                githubRepositoryId: REPOSITORY_ID,
                 prNumber: seq,
                 headSha: `sha-${seq}`,
                 headRef: `branch-${seq}`,
@@ -109,5 +115,57 @@ export class BillingTestHarness implements IntegrationHarness {
         });
 
         return { id: env.id, organizationId: env.organizationId, namespace: env.namespace };
+    }
+
+    /**
+     * The topology app a build belongs to. An app build FKs an app row, so a usage
+     * fixture needs a real application and preview config behind it - created once
+     * per organization and reused, the way one repository's apps share a config.
+     */
+    async createPreviewkitApp(organizationId: string, name: string): Promise<string> {
+        const configId = await this.previewkitConfigFor(organizationId);
+
+        const app = await this.db.previewkitApp.upsert({
+            where: { configId_name: { configId, name } },
+            create: {
+                configId,
+                position: this.previewkitAppSeq++,
+                name,
+                repository: REPO_FULL_NAME,
+                path: ".",
+                port: 3000,
+                resourcesCpu: "250m",
+                resourcesMemoryRequest: "512Mi",
+                resourcesMemoryLimit: "1Gi",
+            },
+            update: {},
+            select: { id: true },
+        });
+
+        return app.id;
+    }
+
+    private async previewkitConfigFor(organizationId: string): Promise<string> {
+        const application = await this.db.application.upsert({
+            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId: REPOSITORY_ID } },
+            create: {
+                organizationId,
+                githubRepositoryId: REPOSITORY_ID,
+                name: "Billing App",
+                slug: "billing-app",
+                architecture: ApplicationArchitecture.WEB,
+            },
+            update: {},
+            select: { id: true },
+        });
+
+        const config = await this.db.previewkitConfig.upsert({
+            where: { applicationId: application.id },
+            create: { applicationId: application.id },
+            update: {},
+            select: { id: true },
+        });
+
+        return config.id;
     }
 }

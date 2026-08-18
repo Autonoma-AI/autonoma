@@ -26,8 +26,8 @@ const V1 = "v1";
 const V2 = "v2";
 const READABLE_VERSIONS: ReadonlySet<string> = new Set([V1, V2]);
 
-/** The version new envelopes are sealed under. Moves to `V2` once every row has an `appId`. */
-const SEALED_VERSION = V1;
+/** The version new envelopes are sealed under. v1 stays readable until every stored envelope has been re-sealed. */
+const SEALED_VERSION = V2;
 
 /** Key ids are stamped into envelopes, so they must not contain the field separator. */
 const KEY_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
@@ -97,14 +97,25 @@ export function readEnvelopeKeyId(ciphertext: string): string {
 export class SecretCipher {
     private readonly material: Uint8Array;
 
+    private readonly sealVersion: string;
+
     /**
      * @param keyId identifies this generation; stamped into every envelope.
      * @param material exactly 32 bytes of key material.
+     * @param sealVersion which envelope version to WRITE. Defaults to the current
+     *   one; overridable only because a version migration needs to be able to
+     *   produce the old shape - to prove the old shape still opens, and to write it
+     *   again if the new one has to be rolled back. Reading always accepts both.
      */
     constructor(
         readonly keyId: string,
         material: Uint8Array,
+        sealVersion: string = SEALED_VERSION,
     ) {
+        if (!READABLE_VERSIONS.has(sealVersion)) {
+            throw new Error(`Cannot seal envelopes as unknown version "${sealVersion}".`);
+        }
+        this.sealVersion = sealVersion;
         if (!KEY_ID_PATTERN.test(keyId)) {
             throw new Error(`Malformed secret key id "${keyId}": expected one or more of A-Z, a-z, 0-9, _ or -.`);
         }
@@ -121,12 +132,12 @@ export class SecretCipher {
         const cipher = createCipheriv(ALGORITHM, this.material, toUint8Array(iv), {
             authTagLength: AUTH_TAG_LENGTH,
         });
-        cipher.setAAD(scopeAad(scope, SEALED_VERSION));
+        cipher.setAAD(scopeAad(scope, this.sealVersion));
 
         const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()].map(toUint8Array));
         const payload = Buffer.concat([iv, encrypted, cipher.getAuthTag()].map(toUint8Array)).toString("base64");
 
-        return [SEALED_VERSION, this.keyId, payload].join(FIELD_SEPARATOR);
+        return [this.sealVersion, this.keyId, payload].join(FIELD_SEPARATOR);
     }
 
     /**

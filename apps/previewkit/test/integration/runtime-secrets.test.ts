@@ -63,6 +63,9 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
                 },
             });
             if (Object.keys(sealed).length > 0) {
+                // A secret is sealed against its app row, so each named app has to be
+                // in the topology before anything can be stored for it.
+                await harness.createTopology(organizationId, REPO_ID, Object.keys(sealed));
                 const provider = new FakeKeyProvider();
                 await mintSecretKey({ db: harness.db, provider, keyId: "1" });
                 const values = new SecretValues(harness.db, new SecretKeys(harness.db, provider));
@@ -181,6 +184,10 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
                     githubRepositoryId: REPO_ID + 1,
                 },
             });
+            // The foreign application needs its own topology naming "web", or its
+            // secret cannot be sealed - which would make this test pass for the wrong
+            // reason (nothing to mount rather than nothing mounted).
+            await harness.createTopology(organizationId, REPO_ID + 1, ["web"]);
             await new SecretValues(harness.db, new SecretKeys(harness.db, new FakeKeyProvider())).put(
                 { kind: "app", applicationId: other.id, appName: "web" },
                 [{ key: "TOKEN", value: "theirs" }],

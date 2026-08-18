@@ -14,6 +14,8 @@ import {
 } from "../../src/db";
 import { PreviewkitTestHarness } from "./harness";
 
+const REPO_ID = 4242;
+
 integrationTestSuite({
     name: "previewkit database",
     createHarness: () => PreviewkitTestHarness.create(),
@@ -210,6 +212,7 @@ integrationTestSuite({
         test("recordPhaseChanged updates status, phase, error, and deployedAt on ready", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
 
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -217,6 +220,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
 
             await recordPhaseChanged({
@@ -248,6 +252,7 @@ integrationTestSuite({
         test("recordPhaseChanged records error message on failure", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
 
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -255,6 +260,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
 
             await recordPhaseChanged({
@@ -274,6 +280,7 @@ integrationTestSuite({
         test("recordBuildFinished creates a build row tied to the environment", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
 
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -281,6 +288,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
 
             await recordBuildFinished({
@@ -343,6 +351,7 @@ integrationTestSuite({
         test("recordBuildFinished records error message on failed builds", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
 
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -350,6 +359,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
 
             await recordBuildFinished({
@@ -387,6 +397,7 @@ integrationTestSuite({
             harness,
         }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -394,6 +405,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
 
             await recordBuildFinished({
@@ -429,6 +441,7 @@ integrationTestSuite({
 
         test("markBuildSuperseded marks the build superseded and leaves the env row untouched", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -436,6 +449,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
             // The env row is mid-build and belongs to the newest run.
             await recordPhaseChanged({
@@ -461,6 +475,7 @@ integrationTestSuite({
 
         test("markBuildSuperseded is idempotent", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -468,6 +483,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
 
             await markBuildSuperseded("preview-acme-web-pr-7", "abc1234");
@@ -487,6 +503,7 @@ integrationTestSuite({
         test("recordEnvironmentReady marks the environment row ready", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
 
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -494,6 +511,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
 
             await recordEnvironmentReady({
@@ -518,6 +536,7 @@ integrationTestSuite({
 
         test("recordAppsPending seeds a pending lifecycle row per app at moment 0", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -525,6 +544,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
 
             await recordAppsPending("preview-acme-web-pr-7", [
@@ -544,6 +564,7 @@ integrationTestSuite({
 
         test("recordAppsPending prunes dropped apps and resets the rest on redeploy", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -551,6 +572,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
 
             await recordAppsPending("preview-acme-web-pr-7", [
@@ -577,6 +599,7 @@ integrationTestSuite({
 
         test("recordAppStates transitions an app through the full lifecycle", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -584,6 +607,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
             const ns = "preview-acme-web-pr-7";
             await recordAppsPending(ns, [{ appName: "web", port: 3000 }]);
@@ -604,6 +628,7 @@ integrationTestSuite({
 
         test("recordAppStates records build_failed and deploy_failed as distinct rows", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -611,6 +636,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
             const ns = "preview-acme-web-pr-7";
             await recordAppsPending(ns, [
@@ -646,6 +672,7 @@ integrationTestSuite({
 
         test("failInFlightApps fails every unfinished app and leaves finished ones alone", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -653,6 +680,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
             const ns = "preview-acme-web-pr-7";
             await recordAppsPending(ns, [
@@ -689,6 +717,7 @@ integrationTestSuite({
 
         test("recordAppStates overwrites mutable fields on redeploy", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -696,6 +725,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
             const ns = "preview-acme-web-pr-7";
             await recordAppsPending(ns, [{ appName: "web", port: 3000 }]);
@@ -717,6 +747,7 @@ integrationTestSuite({
         test("recordAppRedeployOutcome merges one app's outcome and leaves siblings untouched", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
             const ns = "preview-acme-web-pr-7";
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -724,6 +755,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: ns,
+                githubRepositoryId: REPO_ID,
             });
             await recordAppsPending(ns, [
                 { appName: "web", port: 3000 },
@@ -762,6 +794,7 @@ integrationTestSuite({
         }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
             const ns = "preview-acme-web-pr-7";
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -769,6 +802,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: ns,
+                githubRepositoryId: REPO_ID,
             });
             await recordAppsPending(ns, [
                 { appName: "web", port: 3000 },
@@ -803,6 +837,7 @@ integrationTestSuite({
         test("recordEnvironmentTornDown marks env torn_down and stamps tornDownAt", async ({ harness }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
 
+            await harness.createTopology(organizationId, REPO_ID, ["web", "api", "worker", "docs"]);
             await recordEnvironmentCreated({
                 repoFullName: "acme/web",
                 organizationId,
@@ -810,6 +845,7 @@ integrationTestSuite({
                 headSha: "abc1234",
                 headRef: "main",
                 namespace: "preview-acme-web-pr-7",
+                githubRepositoryId: REPO_ID,
             });
 
             await recordEnvironmentTornDown("preview-acme-web-pr-7");

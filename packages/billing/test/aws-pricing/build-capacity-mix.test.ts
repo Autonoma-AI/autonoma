@@ -83,8 +83,9 @@ async function createAppBuildUsage(
     createdAt?: Date,
     vcpuSeconds = 40,
 ) {
+    const appId = await harness.createPreviewkitApp(organizationId, appName);
     const appBuild = await harness.db.previewkitAppBuild.create({
-        data: { buildId, appName, status: "success", durationMs: 10_000, imageTag: `image:${appName}` },
+        data: { buildId, appId, appName, status: "success", durationMs: 10_000, imageTag: `image:${appName}` },
     });
     await harness.db.previewkitAppBuildUsage.create({
         data: {

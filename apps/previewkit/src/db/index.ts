@@ -1,5 +1,5 @@
 import { type BuildCapacityType, fetchBuildInstanceHourlyPrice, isEc2InstanceType } from "@autonoma/billing";
-import { db } from "@autonoma/db";
+import { db, type PrismaClient } from "@autonoma/db";
 import { encryptPreviewkitBypassToken } from "@autonoma/utils";
 import type { BuildRuntime } from "../builder/builder";
 import type { PreviewConfig } from "../config/schema";
@@ -244,19 +244,24 @@ export async function recordBuildFinished(input: BuildFinishedInput): Promise<vo
 
     const env = await db.previewkitEnvironment.findUnique({
         where: { namespace },
-        select: { id: true, organizationId: true },
+        select: { id: true, organizationId: true, githubRepositoryId: true },
     });
     if (env == null) {
         logger.warn("Build finished but no environment row found", { namespace });
         return;
     }
 
+    const appIds = await appIdsForEnvironment(db, env);
+
     // Upsert keyed on (environment, sha) so a Temporal activity retry updates
     // the existing build row instead of inserting a duplicate. The nested
     // `deleteMany` clears the prior per-app rows before re-creating them, since
     // they're uniquely keyed by (buildId, appName) and a bare re-create would
     // conflict on retry.
-    const appBuildRows = Object.entries(appBuilds).map(([appName, outcome]) => toAppBuildRow(appName, outcome));
+    const appBuildRows = Object.entries(appBuilds).map(([appName, outcome]) => ({
+        ...toAppBuildRow(appName, outcome),
+        appId: requireAppId(appIds, appName, namespace),
+    }));
     const build = await db.previewkitBuild.upsert({
         where: { environmentId_headSha: { environmentId: env.id, headSha } },
         create: {
@@ -509,6 +514,50 @@ export async function recordEnvironmentTornDown(namespace: string): Promise<void
     });
 }
 
+/**
+ * The app-row id for each name in this environment's application topology.
+ *
+ * Instances and builds hang off the app row now, so every row written here needs
+ * its id. Resolved from the environment rather than threaded through each caller:
+ * the deploy already knows the names, and the config is the only place that maps a
+ * name to a row.
+ *
+ * A name with no row means the topology changed under a running deploy. That row
+ * cannot be written at all - the foreign key would reject it - so the caller is
+ * told which app rather than left with a constraint violation from inside Prisma.
+ */
+async function appIdsForEnvironment(
+    client: Pick<PrismaClient, "previewkitApp">,
+    env: { githubRepositoryId: number | null; organizationId: string },
+): Promise<Map<string, string>> {
+    if (env.githubRepositoryId == null) return new Map();
+
+    const apps = await client.previewkitApp.findMany({
+        // Scoped by organization as well as repository: a repository id is unique
+        // only WITHIN an org, so matching on it alone could reach another tenant's
+        // topology.
+        where: {
+            config: {
+                application: { githubRepositoryId: env.githubRepositoryId, organizationId: env.organizationId },
+            },
+        },
+        select: { id: true, name: true },
+    });
+    return new Map(apps.map((app) => [app.name, app.id]));
+}
+
+/** The app row `appName` maps to, or a clear failure naming what is missing. */
+function requireAppId(appIds: Map<string, string>, appName: string, namespace: string): string {
+    const appId = appIds.get(appName);
+    if (appId == null) {
+        throw new Error(
+            `Cannot record app "${appName}" for ${namespace}: it is not in the application's preview topology. ` +
+                "The config changed while the deploy was running.",
+        );
+    }
+    return appId;
+}
+
 // Moment 0: seed one `pending` PreviewkitAppInstance row per configured app, so
 // every app has a distinct status record before any build/deploy work runs.
 // Idempotent and safe to re-run on redeploy - it resets each app to `pending`
@@ -521,11 +570,16 @@ export async function recordAppsPending(
     const logger = rootLogger.child({ name: "recordAppsPending" });
     logger.info("Recording apps pending", { namespace, appCount: apps.length });
 
-    const envRow = await db.previewkitEnvironment.findUnique({ where: { namespace }, select: { id: true } });
+    const envRow = await db.previewkitEnvironment.findUnique({
+        where: { namespace },
+        select: { id: true, organizationId: true, githubRepositoryId: true },
+    });
     if (envRow == null) {
         logger.warn("Cannot seed pending apps: no environment row found", { namespace });
         return;
     }
+
+    const appIds = await appIdsForEnvironment(db, envRow);
 
     const appNames = apps.map((a) => a.appName);
     await db.$transaction(async (tx) => {
@@ -535,7 +589,13 @@ export async function recordAppsPending(
         for (const app of apps) {
             await tx.previewkitAppInstance.upsert({
                 where: { environmentId_appName: { environmentId: envRow.id, appName: app.appName } },
-                create: { environmentId: envRow.id, appName: app.appName, status: "pending", port: app.port },
+                create: {
+                    environmentId: envRow.id,
+                    appName: app.appName,
+                    appId: requireAppId(appIds, app.appName, namespace),
+                    status: "pending",
+                    port: app.port,
+                },
                 update: {
                     status: "pending",
                     port: app.port,
@@ -558,11 +618,16 @@ export async function recordAppStates(namespace: string, updates: AppStateUpdate
     if (updates.length === 0) return;
     logger.info("Recording app states", { namespace, count: updates.length });
 
-    const envRow = await db.previewkitEnvironment.findUnique({ where: { namespace }, select: { id: true } });
+    const envRow = await db.previewkitEnvironment.findUnique({
+        where: { namespace },
+        select: { id: true, organizationId: true, githubRepositoryId: true },
+    });
     if (envRow == null) {
         logger.warn("Cannot record app states: no environment row found", { namespace });
         return;
     }
+
+    const appIds = await appIdsForEnvironment(db, envRow);
 
     await db.$transaction(async (tx) => {
         for (const u of updates) {
@@ -575,7 +640,12 @@ export async function recordAppStates(namespace: string, updates: AppStateUpdate
             };
             await tx.previewkitAppInstance.upsert({
                 where: { environmentId_appName: { environmentId: envRow.id, appName: u.appName } },
-                create: { environmentId: envRow.id, appName: u.appName, ...mutable },
+                create: {
+                    environmentId: envRow.id,
+                    appName: u.appName,
+                    appId: requireAppId(appIds, u.appName, namespace),
+                    ...mutable,
+                },
                 update: mutable,
             });
         }
@@ -626,7 +696,7 @@ export async function recordAppRedeployOutcome(namespace: string, update: AppSta
     await db.$transaction(async (tx) => {
         const envRow = await tx.previewkitEnvironment.findUnique({
             where: { namespace },
-            select: { id: true, urls: true },
+            select: { id: true, urls: true, organizationId: true, githubRepositoryId: true },
         });
         if (envRow == null) {
             logger.warn("Cannot record per-app redeploy outcome: no environment row found", { namespace });
@@ -642,7 +712,12 @@ export async function recordAppRedeployOutcome(namespace: string, update: AppSta
         };
         await tx.previewkitAppInstance.upsert({
             where: { environmentId_appName: { environmentId: envRow.id, appName: update.appName } },
-            create: { environmentId: envRow.id, appName: update.appName, ...mutable },
+            create: {
+                environmentId: envRow.id,
+                appName: update.appName,
+                appId: requireAppId(await appIdsForEnvironment(tx, envRow), update.appName, namespace),
+                ...mutable,
+            },
             update: mutable,
         });
 

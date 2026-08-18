@@ -31,6 +31,9 @@ secretsSuite({
             });
             const values = new SecretValues(harness.db, new SecretKeys(harness.db, harness.provider));
             for (const [appName, items] of Object.entries(options.sealed ?? {})) {
+                // A secret is sealed against its app row, so the app has to be in the
+                // topology before anything can be stored for it.
+                await harness.createTopologyApp(application.id, appName);
                 await values.put(
                     { kind: "app", applicationId: application.id, appName },
                     Object.entries(items).map(([key, value]) => ({ key, value })),

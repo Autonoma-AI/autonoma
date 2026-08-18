@@ -60,8 +60,9 @@ integrationTestSuite({
                     bypassToken: "bypass-secret",
                 },
             });
+            const appId = await harness.createPreviewkitApp(applicationId, "web");
             await harness.db.previewkitAppInstance.create({
-                data: { environmentId: environment.id, appName: "web", status: "ready", url, port: 3000 },
+                data: { environmentId: environment.id, appId, appName: "web", status: "ready", url, port: 3000 },
             });
 
             const deploymentId = await recordBranchDeployment({

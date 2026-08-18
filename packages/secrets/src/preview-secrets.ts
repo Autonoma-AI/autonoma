@@ -1,11 +1,7 @@
 import { db, type PrismaClient } from "@autonoma/db";
 import { logger as rootLogger, type Logger } from "@autonoma/logger";
-import { KMSClient } from "@aws-sdk/client-kms";
-import { KmsKeyProvider } from "./kms-key-provider";
-import { SecretKeys } from "./secret-keys";
+import { createKmsSecretKeys } from "./kms-secret-keys";
 import { SecretValues } from "./secret-values";
-
-const DEFAULT_REGION = "us-east-1";
 
 /**
  * The app whose secret carries a preview's env, when an Application holds more than
@@ -53,8 +49,7 @@ export class PreviewSecrets {
     static create(config: PreviewSecretsConfig = {}): PreviewSecrets {
         if (config.cmk == null) return new PreviewSecrets();
 
-        const region = config.region ?? DEFAULT_REGION;
-        const keys = new SecretKeys(db, new KmsKeyProvider(new KMSClient({ region }), config.cmk));
+        const keys = createKmsSecretKeys({ db, cmk: config.cmk, region: config.region });
         return new PreviewSecrets(db, new SecretValues(db, keys));
     }
 

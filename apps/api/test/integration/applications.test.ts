@@ -216,6 +216,8 @@ apiTestSuite({
                 file: "s3://bucket/default-file.png",
             });
             for (const applicationId of [doomed.id, survivor.id]) {
+                // A secret binds its app row, so "web" has to be in the topology first.
+                await harness.seedTopology(applicationId, ["web"]);
                 await values.put({ applicationId, appName: "web" }, [{ key: "STRIPE_SECRET_KEY", value: "sk_test_x" }]);
             }
 

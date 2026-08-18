@@ -39,6 +39,61 @@ export class PreviewkitTestHarness implements IntegrationHarness {
         return { organizationId: org.id, slug };
     }
 
+    /**
+     * Gives an application a preview topology naming `appNames`, creating the
+     * Application if `githubRepositoryId` has none.
+     *
+     * Not optional scaffolding: an app instance and an app build both hang off the
+     * app row now, so a deploy has nowhere to record itself for an app the topology
+     * does not name. Seeding it is what makes these tests exercise the real write.
+     */
+    async createTopology(
+        organizationId: string,
+        githubRepositoryId: number,
+        appNames: readonly string[],
+    ): Promise<Map<string, string>> {
+        const application = await this.db.application.upsert({
+            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
+            create: {
+                name: `App ${randomBytes(3).toString("hex")}`,
+                slug: `app-${randomBytes(4).toString("hex")}`,
+                organizationId,
+                architecture: "WEB",
+                githubRepositoryId,
+            },
+            update: {},
+            select: { id: true },
+        });
+        const config = await this.db.previewkitConfig.upsert({
+            where: { applicationId: application.id },
+            create: { applicationId: application.id },
+            update: {},
+            select: { id: true },
+        });
+
+        const ids = new Map<string, string>();
+        for (const [position, name] of appNames.entries()) {
+            const app = await this.db.previewkitApp.upsert({
+                where: { configId_name: { configId: config.id, name } },
+                create: {
+                    configId: config.id,
+                    position,
+                    name,
+                    repository: "acme/web",
+                    path: ".",
+                    port: 3000,
+                    resourcesCpu: "250m",
+                    resourcesMemoryRequest: "512Mi",
+                    resourcesMemoryLimit: "1Gi",
+                },
+                update: {},
+                select: { id: true },
+            });
+            ids.set(name, app.id);
+        }
+        return ids;
+    }
+
     async createInstallationForOwner(owner: string): Promise<string> {
         const { organizationId } = await this.createOrganization();
         await this.db.gitHubInstallation.create({

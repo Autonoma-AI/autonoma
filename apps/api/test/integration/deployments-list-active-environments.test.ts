@@ -96,6 +96,22 @@ async function createActiveEnvironment(
         appInstances: Array<{ appName: string; status: PreviewkitAppStatus; url?: string; error?: string }>;
     },
 ) {
+    // An instance hangs off an app row, so the fixture needs the application and
+    // topology the environment's apps belong to - not just the environment.
+    const application = await harness.db.application.create({
+        data: {
+            name: `Active ${input.prNumber}`,
+            slug: `active-${input.prNumber}-${crypto.randomUUID().slice(0, 8)}`,
+            organizationId: harness.organizationId,
+            architecture: "WEB",
+            githubRepositoryId: 800_000 + input.prNumber,
+        },
+    });
+    const appIds = await harness.seedTopology(
+        application.id,
+        input.appInstances.map((app) => app.appName),
+    );
+
     const environment = await harness.db.previewkitEnvironment.create({
         data: {
             namespace: `preview-active-pr-${input.prNumber}`,
@@ -104,6 +120,7 @@ async function createActiveEnvironment(
             headSha: "sha-active",
             headRef: `feat/active-${input.prNumber}`,
             organizationId: harness.organizationId,
+            githubRepositoryId: application.githubRepositoryId,
             status: input.status ?? "ready",
             urls: input.urls,
         },
@@ -114,6 +131,7 @@ async function createActiveEnvironment(
             data: {
                 environmentId: environment.id,
                 appName: app.appName,
+                appId: appIds.get(app.appName)!,
                 status: app.status,
                 url: app.url,
                 error: app.error,

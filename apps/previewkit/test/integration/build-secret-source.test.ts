@@ -27,6 +27,20 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
             });
             const bundle: SecretBundle = { kind: "app", applicationId: application.id, appName: "web" };
             if (Object.keys(sealed).length > 0) {
+                // Sealing binds the app row, so "web" has to exist in the topology.
+                await harness.db.previewkitApp.create({
+                    data: {
+                        config: { create: { applicationId: application.id } },
+                        position: 0,
+                        name: "web",
+                        repository: "acme/web",
+                        path: ".",
+                        port: 3000,
+                        resourcesCpu: "250m",
+                        resourcesMemoryRequest: "512Mi",
+                        resourcesMemoryLimit: "1Gi",
+                    },
+                });
                 const provider = new FakeKeyProvider();
                 await mintSecretKey({ db: harness.db, provider, keyId: "1" });
                 await new SecretValues(harness.db, new SecretKeys(harness.db, provider)).put(

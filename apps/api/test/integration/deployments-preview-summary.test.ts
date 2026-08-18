@@ -453,6 +453,12 @@ async function createPreviewEnvironment(
     },
 ) {
     const headSha = input.headSha ?? fixture.headSha ?? "sha";
+    // Builds and instances hang off the app row, so the topology has to name every
+    // app this fixture records before either can be written.
+    const appIds = await harness.seedTopology(fixture.application.id, [
+        ...Object.keys(input.appBuilds),
+        ...(input.appInstances ?? []).map((app) => app.appName),
+    ]);
     const environment = await harness.db.previewkitEnvironment.create({
         data: {
             namespace: `preview-test-pr-${fixture.prNumber}`,
@@ -481,6 +487,7 @@ async function createPreviewEnvironment(
             appBuilds: {
                 create: Object.entries(input.appBuilds).map(([appName, outcome]) => ({
                     appName,
+                    appId: appIds.get(appName)!,
                     status: outcome.status,
                     durationMs: outcome.durationMs,
                     imageTag: outcome.status === "success" ? outcome.imageTag : null,
@@ -497,6 +504,7 @@ async function createPreviewEnvironment(
             data: {
                 environmentId: environment.id,
                 appName: app.appName,
+                appId: appIds.get(app.appName)!,
                 status: app.status ?? "ready",
                 imageTag: app.imageTag,
                 error: app.error,

@@ -211,6 +211,46 @@ export class APITestHarness implements IntegrationHarness {
         return this.organization.id;
     }
 
+    /**
+     * Gives an application a preview topology naming `appNames`, and answers with
+     * name -> app row id.
+     *
+     * Secrets, app instances and app builds all hang off the app row, so a test that
+     * seeds any of them needs the topology first - there is nowhere else for those
+     * rows to point. Returning the ids lets a caller write an instance or build
+     * directly without looking them up again.
+     */
+    async seedTopology(applicationId: string, appNames: readonly string[]): Promise<Map<string, string>> {
+        const config = await this.db.previewkitConfig.upsert({
+            where: { applicationId },
+            create: { applicationId },
+            update: {},
+            select: { id: true },
+        });
+
+        const ids = new Map<string, string>();
+        for (const [position, name] of appNames.entries()) {
+            const app = await this.db.previewkitApp.upsert({
+                where: { configId_name: { configId: config.id, name } },
+                create: {
+                    configId: config.id,
+                    position,
+                    name,
+                    repository: "acme/web",
+                    path: ".",
+                    port: 3000,
+                    resourcesCpu: "250m",
+                    resourcesMemoryRequest: "512Mi",
+                    resourcesMemoryLimit: "1Gi",
+                },
+                update: {},
+                select: { id: true },
+            });
+            ids.set(name, app.id);
+        }
+        return ids;
+    }
+
     get userId(): string {
         if (this.user == null) throw new Error("Harness not set up - call setup() first");
         return this.user.id;
