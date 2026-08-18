@@ -37,6 +37,34 @@ async function seedV1Secret(
     });
 }
 
+/** Seeds `count` v1 rows in one write, enough to make the sweep page more than once. */
+async function seedManyV1Secrets(
+    harness: SecretsHarness,
+    bundle: { applicationId: string; appName: string; appId: string },
+    count: number,
+): Promise<void> {
+    const keys = new SecretKeys(harness.db, harness.provider);
+    const primary = await keys.primary();
+    const v1 = new SecretCipher(primary.keyId, await harness.keyMaterial(primary.keyId), "v1");
+
+    await harness.db.previewkitSecret.createMany({
+        data: Array.from({ length: count }, (_, index) => {
+            const key = `KEY_${String(index).padStart(4, "0")}`;
+            const value = `value-${index}`;
+            return {
+                applicationId: bundle.applicationId,
+                appName: bundle.appName,
+                appId: bundle.appId,
+                key,
+                envelope: v1.encrypt(value, scopeIn({ kind: "app", ...bundle }, key)),
+                encryptionKeyId: primary.keyId,
+                fingerprint: secretFingerprint(value),
+                maskedLength: value.length,
+            };
+        }),
+    });
+}
+
 secretsSuite({
     name: "resealSecrets",
     cases: (test) => {
@@ -97,6 +125,25 @@ secretsSuite({
             const after = await harness.db.previewkitSecret.findFirstOrThrow({ where: { key: "API_KEY" } });
             expect(after.envelope).toBe(before.envelope);
             expect(after.encryptionKeyId).toBe(before.encryptionKeyId);
+        });
+
+        test("re-seals every row when the set spans more than one page", async ({ harness }) => {
+            await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
+            const bundle = await harness.createAppBundle();
+            const total = 205;
+            await seedManyV1Secrets(harness, bundle, total);
+
+            const outcome = await resealSecrets(harness.db, new SecretKeys(harness.db, harness.provider));
+
+            expect(outcome).toEqual({ resealed: total, unopenable: 0 });
+            expect(await harness.db.previewkitSecret.count({ where: { envelope: { startsWith: "v1." } } })).toBe(0);
+
+            // Every value still opens - re-sealing the whole set must not scramble
+            // which envelope belongs to which key.
+            const values = new SecretValues(harness.db, new SecretKeys(harness.db, harness.provider));
+            expect(await values.get(bundle, "KEY_0000")).toBe("value-0");
+            expect(await values.get(bundle, "KEY_0200")).toBe("value-200");
+            expect(await values.get(bundle, "KEY_0204")).toBe("value-204");
         });
 
         test("is a no-op the second time", async ({ harness }) => {

@@ -29,20 +29,27 @@ export interface ResealOutcome {
  * A row that will not open is counted and LEFT ALONE. Overwriting it would make an
  * unrecoverable value permanent, and deleting it would hide that a value nobody can
  * read exists at all.
+ *
+ * Pages by re-reading the head of the set rather than by cursor. Re-sealing a row
+ * takes it out of the `v1.` filter, so the set shrinks underneath the sweep and a
+ * cursor into it points at a row that is no longer there - which silently skipped
+ * one row per page. The only rows that stay are the ones that would not open, and
+ * those are excluded by id, so the loop still terminates.
  */
 export async function resealSecrets(db: PrismaClient, keys: SecretKeys, logger?: Logger): Promise<ResealOutcome> {
     const log = logger ?? rootLogger.child({ name: "resealSecrets" });
     const outcome: ResealOutcome = { resealed: 0, unopenable: 0 };
 
-    let cursor: string | undefined;
+    const unopenableIds: string[] = [];
     for (;;) {
         const page = await db.previewkitSecret.findMany({
-            where: { envelope: { startsWith: "v1." } },
+            where: {
+                envelope: { startsWith: "v1." },
+                id: unopenableIds.length > 0 ? { notIn: unopenableIds } : undefined,
+            },
             select: { id: true, applicationId: true, appName: true, appId: true, key: true, envelope: true },
             orderBy: { id: "asc" },
             take: PAGE_SIZE,
-            cursor: cursor == null ? undefined : { id: cursor },
-            skip: cursor == null ? 0 : 1,
         });
         if (page.length === 0) return outcome;
 
@@ -63,15 +70,12 @@ export async function resealSecrets(db: PrismaClient, keys: SecretKeys, logger?:
                 outcome.resealed += 1;
             } catch (err) {
                 outcome.unopenable += 1;
+                unopenableIds.push(row.id);
                 log.error("Could not open a secret to re-seal it; left untouched", {
                     applicationId: row.applicationId,
                     extra: { appName: row.appName, key: row.key, err },
                 });
             }
         }
-
-        const last = page.at(-1);
-        if (last == null || page.length < PAGE_SIZE) return outcome;
-        cursor = last.id;
     }
 }
