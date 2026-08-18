@@ -93,21 +93,23 @@ export function NavigableLightbox({ steps, activeIndex, onClose, onNavigate }: N
   const hasNext = open && activeIndex < steps.length - 1;
 
   useEffect(() => {
-    if (!open) return;
+    if (activeIndex == null) return;
 
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-      } else if (e.key === "ArrowLeft" && hasPrev) {
-        onNavigate(activeIndex - 1);
-      } else if (e.key === "ArrowRight" && hasNext) {
-        onNavigate(activeIndex + 1);
-      }
+      if (activeIndex == null) return;
+      if (e.key !== "Escape" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      // Capture the key before the surrounding drawer's own dismiss handler (a different dialog library) sees it -
+      // otherwise Escape closes the drawer instead of this lightbox, and arrows never reach us.
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowLeft" && activeIndex > 0) onNavigate(activeIndex - 1);
+      else if (e.key === "ArrowRight" && activeIndex < steps.length - 1) onNavigate(activeIndex + 1);
     }
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, activeIndex, hasPrev, hasNext, onClose, onNavigate]);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [activeIndex, steps.length, onClose, onNavigate]);
 
   return (
     <Dialog.Root

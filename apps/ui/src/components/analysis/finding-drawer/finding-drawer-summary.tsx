@@ -1,4 +1,4 @@
-import { VideoPlayer, cn } from "@autonoma/blacklight";
+import { Skeleton, VideoPlayer, cn } from "@autonoma/blacklight";
 import {
   ClassificationErrorBlock,
   ObservedAppIssuesNote,
@@ -74,20 +74,44 @@ function MediaPanel({
     ) : undefined;
 
   if (mode === "recording" && videoUrl != null) {
-    return <VideoPlayer src={videoUrl} optimizedSrc={generation?.optimizedVideoUrl} actions={toggle} />;
+    return (
+      <VideoPlayer
+        src={videoUrl}
+        optimizedSrc={generation?.optimizedVideoUrl}
+        actions={toggle}
+        videoClassName="aspect-video bg-surface-void object-contain"
+      />
+    );
   }
+  if (keyScreenshotUrl == null) return undefined;
   return (
     <figure className="flex flex-col gap-1">
-      <img
-        src={keyScreenshotUrl}
-        alt="The key frame the classifier chose"
-        className="w-full rounded-lg border border-border-dim"
-      />
+      <KeyFrameImage src={keyScreenshotUrl} alt="The key frame the classifier chose" />
       <div className="flex items-center justify-between gap-2">
         <figcaption className="font-mono text-3xs uppercase tracking-widest text-text-secondary">Key frame</figcaption>
         {toggle}
       </div>
     </figure>
+  );
+}
+
+/**
+ * The classifier's key frame in a fixed `aspect-video` frame: the space is reserved up front and a pulsing skeleton
+ * fills it until the image decodes, so the panel does not jump when the media (or a Recording/Key frame toggle)
+ * loads.
+ */
+function KeyFrameImage({ src, alt }: { src: string; alt: string }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-border-dim bg-surface-void">
+      {!loaded && <Skeleton className="absolute inset-0 size-full rounded-none" />}
+      <img
+        src={src}
+        alt={alt}
+        onLoad={() => setLoaded(true)}
+        className={cn("size-full object-contain transition-opacity duration-200", loaded ? "opacity-100" : "opacity-0")}
+      />
+    </div>
   );
 }
 

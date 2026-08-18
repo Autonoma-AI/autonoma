@@ -1,16 +1,15 @@
 import { Badge, ScreenshotWithOverlay, cn, stepInstruction } from "@autonoma/blacklight";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
-import { StepOutputDisplay } from "components/debug/step-output-display";
 import { NavigableLightbox, type NavigableStep } from "components/screenshot-lightbox";
 import { useState } from "react";
 import type { FindingDetailGeneration, FindingDetailStep } from "./finding-drawer-types";
 
 /**
- * The drawer's steps tab: the generation's live-persisted step attempts, each with its instruction (the raw
- * params rendered as prose), status, output, and captured frame with the agent's interaction points overlaid.
- * Frames open a lightbox navigable across the run. A generation that is still running shows a spinner row at
- * the end - the next step is being decided.
+ * The drawer's steps tab: the generation's live-persisted step attempts as cards, each with its instruction (the
+ * raw params rendered as prose), status, and captured frame with the agent's interaction points overlaid. Frames
+ * open a lightbox navigable across the run. A generation that is still running shows a spinner row at the end -
+ * the next step is being decided.
  */
 export function FindingDrawerSteps({ generation }: { generation: FindingDetailGeneration }) {
   const [lightboxIndex, setLightboxIndex] = useState<number>();
@@ -30,7 +29,7 @@ export function FindingDrawerSteps({ generation }: { generation: FindingDetailGe
   const lightboxIndexByOrder = new Map(lightboxSteps.map((step, index) => [step.stepNumber, index]));
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col gap-2">
       {generation.steps.length === 0 && (
         <p className="rounded-lg border border-border-dim bg-surface-void px-5 py-6 text-sm text-text-secondary">
           {generation.status === "running" || generation.status === "queued" || generation.status === "pending"
@@ -63,7 +62,7 @@ export function FindingDrawerSteps({ generation }: { generation: FindingDetailGe
 function StepRow({ step, onOpenFrame }: { step: FindingDetailStep; onOpenFrame: () => void }) {
   const frame = step.screenshotBefore ?? step.screenshotAfter;
   return (
-    <div className="flex gap-3 border-b border-border-dim py-3 last:border-b-0">
+    <div className="flex items-start gap-3 rounded-lg border border-border-dim bg-surface-void p-3">
       <div className="flex w-5 shrink-0 flex-col items-center pt-0.5">
         {step.status === "failed" ? (
           <XCircleIcon size={16} className="text-status-critical" />
@@ -87,9 +86,6 @@ function StepRow({ step, onOpenFrame }: { step: FindingDetailStep; onOpenFrame: 
             {step.errorName != null ? `${step.errorName}: ` : ""}
             {step.error}
           </p>
-        )}
-        {step.output != null && typeof step.output === "object" && !Array.isArray(step.output) && (
-          <StepOutputDisplay output={step.output} />
         )}
       </div>
       {frame != null && (
