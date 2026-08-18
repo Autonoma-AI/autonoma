@@ -136,7 +136,7 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
             // more, and rolling out an app whose Secret was never populated brings it up
             // "ready" against missing credentials.
             await harness.db.previewkitSecret.updateMany({
-                where: { appName: "api" },
+                where: { app: { name: "api" } },
                 data: { envelope: "v1.1.bm90LWFuLWVudmVsb3Bl" },
             });
 

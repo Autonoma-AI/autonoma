@@ -76,13 +76,12 @@ export class PreviewkitSecretsService {
         const app = await this.findApplication(applicationId, callerOrgId);
         if (app == null) return [];
 
-        const rows = await this.prisma.previewkitSecret.findMany({
-            where: { applicationId },
-            select: { appName: true },
-            distinct: ["appName"],
-            orderBy: { appName: "asc" },
+        const apps = await this.prisma.previewkitApp.findMany({
+            where: { config: { applicationId }, secrets: { some: {} } },
+            select: { name: true },
+            orderBy: { name: "asc" },
         });
-        return rows.map((row) => row.appName);
+        return apps.map((app) => app.name);
     }
 
     /**

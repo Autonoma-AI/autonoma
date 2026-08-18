@@ -223,8 +223,10 @@ apiTestSuite({
 
             await harness.request().applications.delete({ id: doomed.id });
 
-            expect(await harness.db.previewkitSecret.count({ where: { applicationId: doomed.id } })).toBe(0);
-            expect(await harness.db.previewkitSecret.count({ where: { applicationId: survivor.id } })).toBe(1);
+            const heldBy = async (applicationId: string) =>
+                await harness.db.previewkitSecret.count({ where: { app: { config: { applicationId } } } });
+            expect(await heldBy(doomed.id)).toBe(0);
+            expect(await heldBy(survivor.id)).toBe(1);
             // The application row itself survives - a soft delete, so nothing cascaded.
             expect(
                 await harness.db.application.findUniqueOrThrow({

@@ -58,7 +58,9 @@ apiTestSuite({
             );
 
             expect(result).toEqual({ created: true, changed: true });
-            const rows = await harness.db.previewkitSecret.findMany({ where: { applicationId } });
+            const rows = await harness.db.previewkitSecret.findMany({
+                where: { app: { config: { applicationId } } },
+            });
             expect(rows.map((row) => row.key)).toEqual(["API_KEY"]);
             expect(rows[0]?.envelope).not.toContain("sk_live");
         });
@@ -104,7 +106,7 @@ apiTestSuite({
                 secrets.upsert(applicationId, APP, [{ key: "API_KEY", value: "one" }], harness.organizationId),
             ]);
 
-            expect(await harness.db.previewkitSecret.count({ where: { applicationId } })).toBe(1);
+            expect(await harness.db.previewkitSecret.count({ where: { app: { config: { applicationId } } } })).toBe(1);
             expect(await secrets.getValue(applicationId, APP, "API_KEY", harness.organizationId)).toBe("one");
         });
 

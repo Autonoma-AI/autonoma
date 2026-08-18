@@ -1,36 +1,8 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { describeSecretBundle, type SecretBundle, scopeIn } from "@autonoma/utils";
+import { describeSecretBundle, type SecretBundle, scopeFor } from "@autonoma/utils";
 import { secretFingerprint } from "./secret-fingerprint";
 import type { SecretKeys } from "./secret-keys";
-
-/** A row's stored app link, as far as opening its envelope needs it. */
-interface RowAppLink {
-    appId: string | null;
-    app: { config: { applicationId: string } } | null;
-}
-
-/**
- * The bundle as the envelope on this row was actually sealed under.
- *
- * A v2 envelope is bound to the app ROW, so opening it needs that id rather than
- * whichever app carries the name today - that is what lets a value survive a
- * rename. But the id then comes from the row instead of from the caller's bundle,
- * and v2's authenticated data no longer names the application, so a row whose
- * `appId` points into another tenant would otherwise decrypt happily under this
- * tenant's bundle. Checking the link back to the application restores what v1 got
- * from having the application in the AAD: a ciphertext cannot be moved between
- * tenants by writing to the database.
- */
-function sealedUnder(bundle: SecretBundle, row: RowAppLink): SecretBundle {
-    if (row.app != null && row.app.config.applicationId !== bundle.applicationId) {
-        throw new Error(
-            "Refusing to open a secret whose app belongs to a different application. " +
-                "The row's app link and its application disagree, which no legitimate write produces.",
-        );
-    }
-    return { ...bundle, appId: row.appId ?? undefined };
-}
 
 /** How much of a value's length `maskedLength` will admit to, so long values do not leak their size. */
 const MAX_MASKED_LENGTH = 32;
@@ -138,14 +110,8 @@ export class SecretValues {
             extra: { bundle: describeSecretBundle(bundle), count: items.length, force: options.force === true },
         });
 
-        const [cipher, sealed, appId] = await Promise.all([
-            this.keys.primary(),
-            this.sealedState(bundle),
-            this.requireAppId(bundle),
-        ]);
-        // Sealing resolves the app from the bundle itself, so there is no row to
-        // cross-check - the id is the one this application's topology names.
-        const scope: SecretBundle = { ...bundle, appId };
+        const [appId, cipher] = await Promise.all([this.requireAppId(bundle), this.keys.primary()]);
+        const sealed = await this.sealedState(appId);
         const created = sealed.size === 0;
         const changed = items.some((item) => sealed.get(item.key)?.fingerprint !== secretFingerprint(item.value));
         const pending: readonly SecretItem[] =
@@ -162,7 +128,7 @@ export class SecretValues {
 
         const rows = pending.map((item) => ({
             key: item.key,
-            envelope: cipher.encrypt(item.value, scopeIn(scope, item.key)),
+            envelope: cipher.encrypt(item.value, scopeFor(appId, item.key)),
             encryptionKeyId: cipher.keyId,
             fingerprint: secretFingerprint(item.value),
             maskedLength: Math.min(item.value.length, MAX_MASKED_LENGTH),
@@ -171,15 +137,9 @@ export class SecretValues {
         await this.db.$transaction(
             rows.map((row) =>
                 this.db.previewkitSecret.upsert({
-                    where: {
-                        applicationId_appName_key: {
-                            applicationId: bundle.applicationId,
-                            appName: bundle.appName,
-                            key: row.key,
-                        },
-                    },
-                    create: { applicationId: bundle.applicationId, appName: bundle.appName, appId, ...row },
-                    update: { ...row, appId },
+                    where: { appId_key: { appId, key: row.key } },
+                    create: { appId, ...row },
+                    update: row,
                 }),
             ),
             {
@@ -209,16 +169,31 @@ export class SecretValues {
      * honest answer is that there is nowhere to put it.
      */
     private async requireAppId(bundle: SecretBundle): Promise<string> {
-        const app = await this.db.previewkitApp.findFirst({
-            where: { name: bundle.appName, config: { applicationId: bundle.applicationId } },
-            select: { id: true },
-        });
-        if (app == null) {
+        const appId = await this.findAppId(bundle);
+        if (appId == null) {
             throw new Error(
                 `Cannot seal a secret for app "${bundle.appName}": it is not in the application's preview topology.`,
             );
         }
-        return app.id;
+        return appId;
+    }
+
+    /**
+     * The app row a bundle addresses, or undefined when the application's topology
+     * does not name it.
+     *
+     * Every read goes through here, which is also what keeps a tenant's values to
+     * itself: the lookup is scoped to the bundle's application, so it cannot return
+     * another application's app - and the rows hang off the app. That used to be a
+     * check performed on the row after loading it; making it the way the row is
+     * found at all leaves nothing to check.
+     */
+    private async findAppId(bundle: SecretBundle): Promise<string | undefined> {
+        const app = await this.db.previewkitApp.findFirst({
+            where: { name: bundle.appName, config: { applicationId: bundle.applicationId } },
+            select: { id: true },
+        });
+        return app?.id;
     }
 
     /**
@@ -226,9 +201,9 @@ export class SecretValues {
      * whether writing `items` would change anything. Decrypts nothing, for the same
      * reason {@link fingerprints} does not.
      */
-    private async sealedState(bundle: SecretBundle): Promise<Map<string, SealedState>> {
+    private async sealedState(appId: string): Promise<Map<string, SealedState>> {
         const rows = await this.db.previewkitSecret.findMany({
-            where: { applicationId: bundle.applicationId, appName: bundle.appName },
+            where: { appId },
             select: { key: true, fingerprint: true, encryptionKeyId: true },
         });
 
@@ -247,12 +222,11 @@ export class SecretValues {
      * listing is a lower bound on what was there, never an exact replay.
      */
     async list(bundle: SecretBundle, before?: Date): Promise<SecretValueSummary[]> {
+        const appId = await this.findAppId(bundle);
+        if (appId == null) return [];
+
         const rows = await this.db.previewkitSecret.findMany({
-            where: {
-                applicationId: bundle.applicationId,
-                appName: bundle.appName,
-                createdAt: before != null ? { lt: before } : undefined,
-            },
+            where: { appId, createdAt: before != null ? { lt: before } : undefined },
             select: { key: true, fingerprint: true, maskedLength: true, updatedAt: true },
         });
 
@@ -268,14 +242,12 @@ export class SecretValues {
      * a bundle sealed under a single version costs one round trip regardless of size.
      */
     async getAll(bundle: SecretBundle): Promise<Record<string, string> | undefined> {
+        const appId = await this.findAppId(bundle);
+        if (appId == null) return undefined;
+
         const rows = await this.db.previewkitSecret.findMany({
-            where: { applicationId: bundle.applicationId, appName: bundle.appName },
-            select: {
-                key: true,
-                envelope: true,
-                appId: true,
-                app: { select: { config: { select: { applicationId: true } } } },
-            },
+            where: { appId },
+            select: { key: true, envelope: true },
         });
 
         if (rows.length === 0) return undefined;
@@ -287,29 +259,26 @@ export class SecretValues {
         const opened: Record<string, string> = {};
         for (const row of rows) {
             const cipher = await this.keys.forEnvelope(row.envelope);
-            opened[row.key] = cipher.decrypt(row.envelope, scopeIn(sealedUnder(bundle, row), row.key));
+            opened[row.key] = cipher.decrypt(row.envelope, scopeFor(appId, row.key));
         }
         return opened;
     }
 
     /** One value in the clear, or undefined when the bundle has no such key. */
     async get(bundle: SecretBundle, key: string): Promise<string | undefined> {
+        const appId = await this.findAppId(bundle);
+        if (appId == null) return undefined;
+
         const row = await this.db.previewkitSecret.findUnique({
-            where: {
-                applicationId_appName_key: {
-                    applicationId: bundle.applicationId,
-                    appName: bundle.appName,
-                    key,
-                },
-            },
-            select: { envelope: true, appId: true, app: { select: { config: { select: { applicationId: true } } } } },
+            where: { appId_key: { appId, key } },
+            select: { envelope: true },
         });
 
         if (row == null) return undefined;
 
         this.logger.info("Opening a secret value", { extra: { bundle: describeSecretBundle(bundle), key } });
         const cipher = await this.keys.forEnvelope(row.envelope);
-        return cipher.decrypt(row.envelope, scopeIn(sealedUnder(bundle, row), key));
+        return cipher.decrypt(row.envelope, scopeFor(appId, key));
     }
 
     /**
@@ -319,9 +288,10 @@ export class SecretValues {
     async remove(bundle: SecretBundle, key: string): Promise<boolean> {
         this.logger.info("Removing a secret value", { extra: { bundle: describeSecretBundle(bundle), key } });
 
-        const removed = await this.db.previewkitSecret.deleteMany({
-            where: { applicationId: bundle.applicationId, appName: bundle.appName, key },
-        });
+        const appId = await this.findAppId(bundle);
+        if (appId == null) return false;
+
+        const removed = await this.db.previewkitSecret.deleteMany({ where: { appId, key } });
 
         this.logger.info("Secret value removed", {
             extra: { bundle: describeSecretBundle(bundle), key, count: removed.count },

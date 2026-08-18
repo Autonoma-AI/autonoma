@@ -782,7 +782,7 @@ export class OnboardingSdkCapabilityService {
         // The bundle's own timestamp is the newest of its keys': any one of them
         // changing is a reason to redeploy, since they all mount from one K8s Secret.
         const secret = await this.db.previewkitSecret.findFirst({
-            where: { applicationId, appName: sdkAppName },
+            where: { app: { name: sdkAppName, config: { applicationId } } },
             select: { updatedAt: true },
             orderBy: { updatedAt: "desc" },
         });

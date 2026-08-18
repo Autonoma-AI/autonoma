@@ -7,8 +7,6 @@ import { type SecretsHarness, secretsSuite } from "./harness";
 
 const SCOPE: SecretScope = {
     kind: "app",
-    applicationId: "app_123",
-    appName: "web",
     appId: "pkapp_123",
     key: "DATABASE_URL",
 };

@@ -1,4 +1,4 @@
-import { scopeIn } from "@autonoma/utils";
+import { scopeFor } from "@autonoma/utils";
 import { expect } from "vitest";
 import { mintSecretKey } from "../src/mint-secret-key";
 import { NoPrimaryEncryptionKeyError } from "../src/no-primary-encryption-key-error";
@@ -27,7 +27,7 @@ secretsSuite({
             const row = await harness.db.previewkitSecret.findFirstOrThrow({ where: { key: "DATABASE_URL" } });
             const cipher = await new SecretKeys(harness.db, harness.provider).forEnvelope(row.envelope);
 
-            expect(cipher.decrypt(row.envelope, scopeIn(bundle, "DATABASE_URL"))).toBe("postgres://secret");
+            expect(cipher.decrypt(row.envelope, scopeFor(bundle.appId, "DATABASE_URL"))).toBe("postgres://secret");
         });
 
         test("never stores the plaintext", async ({ harness }) => {
@@ -86,7 +86,7 @@ secretsSuite({
             const updated = await keys.forEnvelope(rows[0]?.envelope ?? "");
 
             expect(rows).toHaveLength(2);
-            expect(updated.decrypt(rows[0]?.envelope ?? "", scopeIn(bundle, "A"))).toBe("one-updated");
+            expect(updated.decrypt(rows[0]?.envelope ?? "", scopeFor(bundle.appId, "A"))).toBe("one-updated");
         });
 
         // `updatedAt` is read as "when this value last changed" - onboarding compares it

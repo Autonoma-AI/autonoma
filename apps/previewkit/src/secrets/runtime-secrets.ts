@@ -1,7 +1,7 @@
 import { db, type PrismaClient } from "@autonoma/db";
 import { PreviewPlatformError } from "../errors";
 import { type Logger, logger as rootLogger } from "../logger";
-import { dedupeSecretRecordsByTarget } from "./dedupe-secret-targets";
+import { dedupeSecretRecordsByTarget, type SecretTargetRecord } from "./dedupe-secret-targets";
 import type { PostgresSecretMaterializer } from "./postgres-secret-materializer";
 import { previewSecretName } from "./preview-secret-name";
 import type { AppSecretInfo, SecretTarget } from "./runtime-secret-types";
@@ -89,20 +89,26 @@ export class RuntimeSecrets {
     ): Promise<SecretTarget[]> {
         // Scope to THIS deploy's Application, identified by (organizationId,
         // githubRepositoryId) - not the whole org. App names are unique within an
-        // application's topology but NOT across an org: a bare `appName IN (...)`
-        // match collides when two applications each own an app of the same name
-        // (e.g. "web"), which would mount a foreign application's secret into this
+        // application's topology but NOT across an org: matching on the name alone
+        // collides when two applications each own an app of the same name (e.g.
+        // "web"), which would mount a foreign application's secret into this
         // namespace. Dependency-repo apps ride the primary app's config, so their
         // secrets live under this same Application.
-        const records = await this.prisma.previewkitSecret.findMany({
+        //
+        // Asks the topology rather than the secret rows: one app is one bundle, so
+        // this needs no de-duplication of the rows underneath it.
+        const apps = await this.prisma.previewkitApp.findMany({
             where: {
-                application: { organizationId, githubRepositoryId },
-                appName: { in: appNames },
+                config: { application: { organizationId, githubRepositoryId } },
+                name: { in: appNames },
+                secrets: { some: {} },
             },
-            select: { applicationId: true, appName: true },
-            // One row per key, so the bundles are what this wants, not the rows.
-            distinct: ["applicationId", "appName"],
+            select: { name: true, config: { select: { applicationId: true } } },
         });
+        const records: SecretTargetRecord[] = apps.map((app) => ({
+            applicationId: app.config.applicationId,
+            appName: app.name,
+        }));
         if (records.length === 0) return [];
 
         // Collapse bundles that fold to one K8s Secret target: two of them writing

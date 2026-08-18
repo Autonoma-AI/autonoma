@@ -85,8 +85,8 @@ secretsSuite({
                 sealed: { web: { OLD_KEY: "a", ADDED_LATER: "b" } },
             });
             const classifiedAt = new Date("2026-01-15T00:00:00Z");
-            await harness.db.previewkitSecret.update({
-                where: { applicationId_appName_key: { applicationId, appName: "web", key: "OLD_KEY" } },
+            await harness.db.previewkitSecret.updateMany({
+                where: { key: "OLD_KEY", app: { name: "web", config: { applicationId } } },
                 data: { createdAt: new Date("2026-01-01T00:00:00Z") },
             });
 

@@ -479,7 +479,9 @@ export class ApplicationsService extends Service {
             // inherit stale values that collide with its own in the reused -pr-0
             // namespace. These rows hold the only copy, so this is a real deletion,
             // not the release of a registration.
-            const removed = await tx.previewkitSecret.deleteMany({ where: { applicationId: id } });
+            const removed = await tx.previewkitSecret.deleteMany({
+                where: { app: { config: { applicationId: id } } },
+            });
             this.logger.info("Removed preview secrets for deleted application", {
                 applicationId: id,
                 extra: { removed: removed.count },

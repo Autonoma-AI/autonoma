@@ -545,23 +545,22 @@ export class PreviewPipeline {
                 ),
             );
             const buildStart = Date.now();
-            // Scoped to THIS deploy's Application, mirroring
-            // RuntimeSecrets.applyForNamespace. App names are unique
-            // within an application's topology but NOT across an org, so a bare
-            // org-wide `appName IN (...)` match would pull a foreign app's secret
-            // when two applications share an app name (e.g. "web").
-            // Dependency apps ride the primary config.
-            const secretRecords = await db.previewkitSecret.findMany({
-                where: {
-                    applicationId: application.id,
-                    appName: { in: mergedConfig.apps.map((app) => app.name) },
-                },
-                select: { appName: true },
-                distinct: ["appName"],
-            });
+            // Rooted at THIS deploy's Application. App names are unique within an
+            // application's topology but NOT across an org, so matching on the name
+            // alone would pull a foreign app when two applications share one (e.g.
+            // "web"). Dependency apps ride the primary config.
+            //
             // Which of this deploy's apps hold at least one secret. Only presence
             // matters here: the values are read from the bundle when they are needed.
-            const secretApps = new Set(secretRecords.map((record) => record.appName));
+            const appsHoldingSecrets = await db.previewkitApp.findMany({
+                where: {
+                    config: { applicationId: application.id },
+                    name: { in: mergedConfig.apps.map((app) => app.name) },
+                    secrets: { some: {} },
+                },
+                select: { name: true },
+            });
+            const secretApps = new Set(appsHoldingSecrets.map((app) => app.name));
             logger.info("Build step 5/6 building images for all apps", {
                 repo: repoFullName,
                 pr: prNumber,

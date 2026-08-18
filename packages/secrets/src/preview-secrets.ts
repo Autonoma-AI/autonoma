@@ -122,20 +122,23 @@ export class PreviewSecrets {
      * organization's live credentials.
      */
     private async resolveBundle(applicationId: string): Promise<AppBundle | undefined> {
-        const records = await this.prisma.previewkitSecret.findMany({
-            where: { applicationId },
-            select: { appName: true },
-            distinct: ["appName"],
+        // Asks the topology which apps hold values, rather than the secret rows
+        // themselves: a row names only its app id now, and the name this returns
+        // has to be the one the app currently carries.
+        const apps = await this.prisma.previewkitApp.findMany({
+            where: { config: { applicationId }, secrets: { some: {} } },
+            select: { name: true },
+            orderBy: { position: "asc" },
         });
 
         // Prefer the primary app, but a sole bundle wins whatever it is called - an
         // Application's one app is often not named `web`.
-        const chosen = records.find((record) => record.appName === PRIMARY_APP_NAME) ?? records[0];
+        const chosen = apps.find((app) => app.name === PRIMARY_APP_NAME) ?? apps[0];
         if (chosen == null) {
             this.logger.info("No previewkit secrets stored for this application", { applicationId });
             return undefined;
         }
-        return { kind: "app", applicationId, appName: chosen.appName };
+        return { kind: "app", applicationId, appName: chosen.name };
     }
 
     /**

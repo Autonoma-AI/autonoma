@@ -2450,34 +2450,35 @@ model PreviewkitEncryptionKey {
 // (applicationId, appName), so an app with no secrets has no rows rather than an
 // empty parent.
 model PreviewkitSecret {
-  id              String @id @default(cuid())
-  applicationId   String @map("application_id")
-  /// The app this value belongs to. Deleting it takes this row with it.
-  appId           String @map("app_id")
-  /// AUTHENTICATED DATA, not a redundant pointer to `app`. Every envelope is
-  /// sealed under (kind, applicationId, appName, key), so changing or dropping
-  /// either of those without re-sealing makes the value permanently unopenable.
-  /// Both come off in release 3, once the AAD has moved to (kind, appId, key).
-  appName         String @map("app_name")
+  id              String  @id @default(cuid())
+  /// The app this value belongs to, and the only thing that identifies it.
+  /// Deleting the app takes this row with it.
+  appId           String  @map("app_id")
+  /// Vestigial. Nothing reads or writes these two: a `v2` envelope is sealed
+  /// under (kind, appId, key), so neither is authenticated data any more and
+  /// both are derivable from `app`. Nullable so the writers could stop filling
+  /// them in before the columns come off; the next migration drops them.
+  applicationId   String? @map("application_id")
+  appName         String? @map("app_name")
   /// The environment variable name, e.g. DATABASE_URL. Not a cryptographic key.
   key             String
   envelope        String
   /// Which encryption key sealed `envelope`. Restrict, not Cascade: a key must
   /// not be deletable while any value still needs it to be readable.
-  encryptionKeyId String @map("encryption_key_id")
+  encryptionKeyId String  @map("encryption_key_id")
   /// Non-reversible SHA-256 prefix, for equality checks without the value.
   fingerprint     String
-  maskedLength    Int    @map("masked_length")
+  maskedLength    Int     @map("masked_length")
 
-  application   Application             @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application   Application?            @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   app           PreviewkitApp           @relation(fields: [appId], references: [id], onDelete: Cascade)
   encryptionKey PreviewkitEncryptionKey @relation(fields: [encryptionKeyId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  @@unique([appId, key])
   @@unique([applicationId, appName, key])
-  @@index([appId])
   @@index([applicationId])
   @@index([encryptionKeyId])
   @@map("previewkit_secret")
