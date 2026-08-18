@@ -1,6 +1,7 @@
 import { Badge, Panel, PanelBody, Skeleton, StatusDot } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { useSuspenseQueries } from "@tanstack/react-query";
 import { createFileRoute, notFound } from "@tanstack/react-router";
@@ -129,10 +130,8 @@ function PrOverview({
   );
 }
 
-// The authoritative PR overview: the Reporter's report prose hero + the issues-first verdict headline + the
-// branch's open-issues list in the main column, with the checkpoint-history rail retained. While the run is still
-// in flight (no report yet), the main column falls back to the `AnalysisJob` status and polls until the report
-// lands. The per-snapshot findings list and the standalone impact-analysis panel live on the snapshot per-job view.
+// The authoritative PR overview: the latest completed report and its issues, plus a card into the in-progress
+// checkpoint when a run is live. No live progress here - that is the checkpoint page's staged view.
 function AuthoritativePrOverview({
   branchId,
   prNumber,
@@ -146,29 +145,71 @@ function AuthoritativePrOverview({
   latestSnapshot: Snapshot;
   analysisJob: NonNullable<RouterOutputs["branches"]["analysisJob"]>;
 }) {
-  const { data: report } = useAnalysisReport(latestSnapshot.id, { jobStatus: analysisJob.status });
+  // No `jobStatus`: the PR page does not poll - the in-flight card sends the reader to the checkpoint to watch.
+  const { data: latestReport } = useAnalysisReport(latestSnapshot.id);
+  const runInFlight = latestReport == null && analysisJob.status !== "failed";
+  // While the latest run is unsettled, show the most recent earlier settled run's report (latest excluded).
+  const earlierSettled = latestReport == null ? snapshots.slice(1).find((snapshot) => snapshot.settled) : undefined;
 
   return (
     <div className="p-6">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
         <div className="flex min-w-0 flex-col gap-4">
-          {report != null ? (
+          {runInFlight && <InProgressCheckpointCard prNumber={prNumber} snapshot={latestSnapshot} />}
+          {latestReport != null ? (
             <Suspense fallback={<AuthoritativeReportSkeleton />}>
               <AuthoritativeReportColumn
                 branchId={branchId}
                 prNumber={prNumber}
                 snapshotId={latestSnapshot.id}
-                report={report}
+                report={latestReport}
               />
             </Suspense>
+          ) : earlierSettled != null ? (
+            <Suspense fallback={<AuthoritativeReportSkeleton />}>
+              <SettledReportColumn branchId={branchId} prNumber={prNumber} snapshotId={earlierSettled.id} />
+            </Suspense>
           ) : (
-            <AnalysisJobStatus job={analysisJob} />
+            !runInFlight && <AnalysisJobStatus job={analysisJob} />
           )}
         </div>
         <CheckpointRail prNumber={prNumber} snapshots={snapshots} />
       </div>
     </div>
   );
+}
+
+// A card linking into an unsettled run's checkpoint, where the live staged view lives.
+function InProgressCheckpointCard({ prNumber, snapshot }: { prNumber: number; snapshot: Snapshot }) {
+  return (
+    <AppLink
+      to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId"
+      params={{ prNumber, snapshotId: snapshot.id }}
+      className="flex items-center gap-3 rounded-lg border border-border-dim bg-surface-base px-4 py-3 transition-colors hover:border-border-mid hover:bg-surface-raised"
+    >
+      <CircleNotchIcon size={18} className="shrink-0 animate-spin text-primary" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-text-primary">A new checkpoint is being analyzed</p>
+        <p className="font-mono text-2xs text-text-secondary">Open it to watch the run stage by stage</p>
+      </div>
+      <ArrowRightIcon size={14} className="shrink-0 text-text-secondary" />
+    </AppLink>
+  );
+}
+
+// Fetches one snapshot's report and renders the issues-first column, under its own Suspense boundary.
+function SettledReportColumn({
+  branchId,
+  prNumber,
+  snapshotId,
+}: {
+  branchId: string;
+  prNumber: number;
+  snapshotId: string;
+}) {
+  const { data: report } = useAnalysisReport(snapshotId);
+  if (report == null) return undefined;
+  return <AuthoritativeReportColumn branchId={branchId} prNumber={prNumber} snapshotId={snapshotId} report={report} />;
 }
 
 // The issues-first report column, split from the overview so it (and its open-issues query) only loads once the

@@ -517,7 +517,10 @@ export const FlowsExpanded: Story = {
   },
 };
 
-/** The running-snapshot fallback: an authoritative run is still in flight, so the AnalysisJob status stands in. */
+/**
+ * A run still in flight with no earlier settled report: the PR page shows no live progress, only a card linking
+ * into the in-progress checkpoint where the staged view lives.
+ */
 export const Running: Story = {
   args: { path: OVERVIEW_PATH },
   parameters: {
@@ -525,6 +528,7 @@ export const Running: Story = {
       handlers: appShellHandlers(
         pageFixtures({
           analysisReport: null,
+          analysisIssues,
           analysisJob: { status: "running", startedAt: STARTED_AT },
         }),
       ),
