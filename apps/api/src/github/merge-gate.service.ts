@@ -11,7 +11,6 @@ import {
 import {
     ANALYSIS_RUN_SOURCE,
     type AnalysisRunSource,
-    buildAnalyzingCommentBody,
     createGitHubCheckRunStore,
     isStartAnalysisCommand,
     MERGE_GATE_ANALYTICS_GROUP,
@@ -398,8 +397,6 @@ export class MergeGateService {
                 { [MERGE_GATE_ANALYTICS_GROUP]: params.organizationId },
             );
 
-            await this.postAnalyzingReply(client, params);
-
             this.logger.info("Merge gate: analysis run requested and check flipped to in-progress", {
                 organizationId: params.organizationId,
                 extra: {
@@ -554,27 +551,6 @@ export class MergeGateService {
         } catch (err) {
             this.logger.warn("Merge gate: failed to post draft-label guidance reply", {
                 extra: { repoFullName, prNumber },
-                err,
-            });
-        }
-    }
-
-    /** A PR comment announcing the requested run started, so the trigger's effect is visible in the conversation. */
-    private async postAnalyzingReply(
-        client: GitHubInstallationClient,
-        params: RequestAnalysisRunParams,
-    ): Promise<void> {
-        const body = buildAnalyzingCommentBody(params.actorLogin);
-        try {
-            await client.postComment(params.repoFullName, params.prNumber, body);
-            this.logger.info("Merge gate: posted analyzing reply", {
-                organizationId: params.organizationId,
-                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
-            });
-        } catch (err) {
-            this.logger.warn("Merge gate: failed to post analyzing reply", {
-                organizationId: params.organizationId,
-                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
                 err,
             });
         }

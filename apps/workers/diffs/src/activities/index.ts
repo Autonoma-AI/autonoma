@@ -8,6 +8,7 @@ export { openAnalysisRun } from "./analysis/open-analysis-run";
 import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-test";
 import { openAnalysisRun } from "./analysis/open-analysis-run";
 import { openMergeGate as openMergeGateImpl } from "./analysis/open-merge-gate";
+import { postAnalyzingPrCommentActivity } from "./analysis/post-analyzing-pr-comment";
 import { persistAnalysisClassification as persistAnalysisClassificationImpl } from "./analysis/persist-classification";
 import { recordAnalysisContainment as recordAnalysisContainmentImpl } from "./analysis/record-analysis-containment";
 import { revertSelfHealPlan as revertSelfHealPlanImpl } from "./analysis/revert-self-heal-plan";
@@ -49,6 +50,8 @@ function withHeartbeat<A extends unknown[], R>(fn: (...args: A) => Promise<R>): 
 // the reasoning loop, and the Reporter clones the repo + runs an agent loop - all take MINUTES, so all MUST
 // heartbeat; finalize (verdict derivation + promotion plumbing) is fast but heartbeats for consistency.
 export const openMergeGate = withHeartbeat(openMergeGateImpl);
+// A few DB reads plus one GitHub call - fast, and best-effort, so no heartbeat wrapper.
+export const postAnalyzingPrComment = postAnalyzingPrCommentActivity;
 export const runImpactAnalysis = withHeartbeat(runImpactAnalysisImpl);
 export const runReporter = withHeartbeat(runReporterImpl);
 export const settleAnalysisRun = withHeartbeat(settleAnalysisRunImpl);
@@ -69,6 +72,7 @@ export const recordAnalysisContainment = withHeartbeat(recordAnalysisContainment
 ({
     openAnalysisRun,
     openMergeGate,
+    postAnalyzingPrComment,
     runImpactAnalysis,
     startInvestigationRun,
     classifyInvestigationRun,

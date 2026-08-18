@@ -1,55 +1,40 @@
 import type { Prisma, PrismaClient } from "@autonoma/db";
-import {
-    type AnalysisIssueKind,
-    type AnalysisIssueSeverity,
-    analysisCoverageOwner,
-    analysisIssueKindSchema,
-    compareAnalysisIssues,
-} from "@autonoma/types";
-import { parseIssueEnums } from "../issue-enums";
+import { analysisCoverageOwner, analysisIssueKindSchema, compareAnalysisIssues } from "@autonoma/types";
+import { type Issue, readIssues } from "./read-issues";
 
 const BUG_KIND = analysisIssueKindSchema.enum.bug;
 
-/** A client-owned coverage gap, addressed by the open issue the Reporter attributed it to. */
-export interface ClientOwnedGap {
-    issueId: string;
-    title: string;
-}
-
 /**
  * The open, non-bug issues behind this run's client-owned coverage gaps, most actionable first - what the PR comment
- * asks the reader to fix.
+ * asks the reader to fix. Loaded in full (each with its designated run and media) so the comment can card them the
+ * same way it cards bugs.
  *
  * A gap is the reader's when its verdict is client-owned or undecided AND it is attributed to an open issue that is
  * not a bug (bugs get their own cards). An unattributed gap is ours and contributes nothing; a malformed issue kind
- * reads as unattributed, which is the safe direction. Selects only the category and the attributed issue's header -
- * never the finding's run trace or evidence blobs.
+ * reads as unattributed, which is the safe direction.
  *
- * Findings are read slug-ordered and the sort is stable, so equal-severity issues hold that slug order.
+ * "Unattributed means ours" only holds because a RECURRING gap cannot go unattributed: the Reporter's third coverage
+ * guarantee rejects a finish that leaves an open issue uncarried when a covering test hit the same fault again, and
+ * carrying it forward re-attributes this run's finding. Weaken that guarantee and a live configuration gap starts
+ * reading as our problem on its second run.
+ *
+ * Findings are scanned slug-ordered, so equal-severity issues hold that stable slug order in the returned list.
  */
 export async function readClientOwnedGaps(
     db: PrismaClient | Prisma.TransactionClient,
     snapshotId: string,
-): Promise<ClientOwnedGap[]> {
+): Promise<Issue[]> {
     const rows = await db.analysisFinding.findMany({
         where: { reportSnapshotId: snapshotId, currentClassification: { isNot: null } },
         orderBy: { testCase: { slug: "asc" } },
         select: {
             currentClassification: { select: { category: true } },
-            issue: {
-                select: {
-                    id: true,
-                    resolvedAt: true,
-                    currentVersion: { select: { title: true, kind: true, severity: true } },
-                },
-            },
+            issue: { select: { id: true, resolvedAt: true, currentVersion: { select: { kind: true } } } },
         },
     });
 
-    const byIssueId = new Map<
-        string,
-        { id: string; title: string; kind: AnalysisIssueKind; severity: AnalysisIssueSeverity }
-    >();
+    // Insertion order is the slug order above; a `Set` also de-dupes issues seen on more than one finding.
+    const gapIssueIds = new Set<string>();
     for (const row of rows) {
         const category = row.currentClassification?.category;
         if (category == null) continue;
@@ -57,16 +42,21 @@ export async function readClientOwnedGaps(
         if (owner !== "client" && owner !== "undecided") continue;
 
         const issue = row.issue;
-        // Open (unresolved) only, and never a bug - bugs are carded on their own.
+        // Open (unresolved) only, and never a bug - bugs are carded on their own. A malformed or absent kind reads
+        // as unattributed (skipped), the safe direction.
         if (issue == null || issue.resolvedAt != null || issue.currentVersion == null) continue;
-        const version = issue.currentVersion;
-        const enums = parseIssueEnums({ id: issue.id, kind: version.kind, severity: version.severity });
-        if (enums == null || enums.kind === BUG_KIND) continue;
+        const kind = analysisIssueKindSchema.safeParse(issue.currentVersion.kind);
+        if (!kind.success || kind.data === BUG_KIND) continue;
 
-        byIssueId.set(issue.id, { id: issue.id, title: version.title, kind: enums.kind, severity: enums.severity });
+        gapIssueIds.add(issue.id);
     }
 
-    return [...byIssueId.values()]
-        .sort((a, b) => compareAnalysisIssues(a, b))
-        .map((issue) => ({ issueId: issue.id, title: issue.title }));
+    if (gapIssueIds.size === 0) return [];
+
+    // `readIssues` ranks kind then severity, breaking ties by id; re-break equal-severity ties by the slug order
+    // above so the reader's cards hold a stable, source-ordered sequence rather than an arbitrary id order.
+    const orderedIds = [...gapIssueIds];
+    const slugRank = new Map(orderedIds.map((id, index) => [id, index]));
+    const issues = await readIssues(db, { id: { in: orderedIds } });
+    return issues.sort((a, b) => compareAnalysisIssues(a, b) || (slugRank.get(a.id) ?? 0) - (slugRank.get(b.id) ?? 0));
 }

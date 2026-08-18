@@ -2,7 +2,6 @@ import { analytics } from "@autonoma/analytics";
 import { db } from "@autonoma/db";
 import {
     ANALYSIS_RUN_SOURCE,
-    buildAnalyzingCommentBody,
     createGitHubCheckRunStore,
     MERGE_GATE_ANALYTICS_GROUP,
     MERGE_GATE_CHECK_NAME,
@@ -127,13 +126,6 @@ async function flipCheckToAnalyzing(
     if (!opened) {
         logger.info("Merge-gate check already in-progress or terminal; nothing to open");
         return { status: "skipped" };
-    }
-
-    // Announce the run in the PR conversation, matching the on-demand triggers (no actor - it is automatic).
-    try {
-        await github.githubClient.postComment(github.repoFullName, target.prNumber, buildAnalyzingCommentBody());
-    } catch (error) {
-        logger.warn("Failed to post the auto-run analyzing comment", { extra: { err: error } });
     }
 
     analytics.capture(

@@ -2092,6 +2092,9 @@ enum GitHubPrCommentKind {
   preview
   investigation
   analysis
+  // The single Autonoma PR comment - preview status + analysis - owned by the analysis run workflow. Supersedes the
+  // separate `preview` and `analysis` comments, which the workflow deletes on this comment's first post.
+  pr
 
   @@map("github_pr_comment_kind")
 }

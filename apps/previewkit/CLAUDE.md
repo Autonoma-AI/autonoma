@@ -31,7 +31,7 @@ GitHub pull_request webhook
             clone repo(s) -> build images -> create namespace {owner}-{repo}-{N}-{hash}
             -> deploy infra services -> hand namespace to the central Gatekeeper
             -> deploy app Deployments + Services
-            -> run pre/post-deploy hooks -> post/update the PR comment, then exit
+            -> run pre/post-deploy hooks -> set the commit status, then exit
        -> wait for the environment to go ready -> attach the branch deployment
        -> Investigators -> Reporter -> settle the analysis run
 ```
@@ -51,10 +51,9 @@ writes no row at all, so `previewBuildWorkflow` reads the Job's own terminal sta
 is what tells it no preview is coming. Adding a decline path to `prepare` therefore needs no orchestrator change.
 
 On `pull_request.closed`, `launchTeardown()` creates a `pk-teardown-*` Job that runs
-`TeardownPipeline` (namespace delete + PR comment). Teardown updates both PR
-comments: the previewkit `"preview"` comment is replaced with a "Torn down" message, and the
-`"investigation"` test-results comment (owned by the investigation worker) has its now-dead "See preview"
-button stripped in place via `stripCtaFromBody` (`@autonoma/github/comment`). A per-app redeploy
+`TeardownPipeline` (namespace delete + commit status). The single Autonoma PR comment is owned by the
+analysis run workflow (`kind: "pr"`), not the runner, so teardown leaves it in place - its verdict is the
+artifact worth keeping - and only flips the commit status to "torn down". A per-app redeploy
 (`PATCH .../apps/:app`) creates a `pk-redeploy-app-*` Job (`rebuild` or `restart`).
 
 Main-branch environments (environment 0, created via `POST /v1/previewkit/applications/:id/0`)
@@ -185,7 +184,8 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
       needs kubectl on the PREVIEW cluster). This is one-way: nothing hands a Secret back to ESO.
   The runner does NOT start the Autonoma review: `analysisRunWorkflow` launched the build in the first place
   and watches the environment row for readiness itself, so it owns everything downstream. The runner stays
-  responsible for build, deploy, environment status writes, and the preview-URL PR comment.
+  responsible for build, deploy, environment status writes, and the commit status. The single Autonoma PR
+  comment (preview status + analysis) is owned by the analysis run workflow, not the runner.
 
 ## The public surface lives in apps/api
 

@@ -5,7 +5,6 @@ export {
     type RecordContainmentInput,
     type RecordSelectionInput,
 } from "./analysis";
-export { type ClientOwnedGap } from "./queries/client-owned-gaps";
 export {
     type IssueContent,
     type IssueReconciliation,

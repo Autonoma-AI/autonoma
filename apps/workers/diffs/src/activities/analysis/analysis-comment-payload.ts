@@ -1,5 +1,5 @@
 import { MERGE_GATE_SKIP_COMMAND } from "@autonoma/github/check";
-import { buildAgentHandoffLinks, capHandoffPrompt } from "@autonoma/github/comment";
+import { buildAgentHandoffLinks, capHandoffPrompt, SEE_PREVIEW_CTA_LABEL } from "@autonoma/github/comment";
 import type {
     AutonomaCommentBug,
     AutonomaCommentCta,
@@ -73,7 +73,6 @@ const VERIFIED_HEADING = "✅ What we verified";
 const YOURS_HEADING = "⚠️ Couldn't check - yours to fix";
 const YOURS_WHY =
     "These are setup gaps, not app bugs - but they block every future run on this branch until they are fixed, not just this one.";
-const YOURS_ISSUES_LEAD = "What to fix:";
 
 /** Reported so the reader knows what was skipped, never asked of them. */
 const OURS_HEADING = "Couldn't check - on us";
@@ -144,11 +143,19 @@ export interface AnalysisCommentIssue {
     suspectedCause?: SuspectedCause;
 }
 
-/** One issue behind a client-owned coverage gap: the Reporter's own words for what has to be fixed. */
+/** One issue behind a client-owned coverage gap, carded like a bug (minus evidence): the reader's "what to fix". */
 export interface AnalysisCommentCoverageIssue {
     /** The branch-scoped issue id the issue-detail page is keyed on. */
     id: string;
     title: string;
+    /** The gap in the reader's terms - the card's description. */
+    actualBehavior: string;
+    /** `s3://` primary-screenshot key - the representative frame, and the fallback when there is no clip. */
+    screenshotKey?: string;
+    /** `s3://` GIF clip of the designated run, preferred over the static frame when present. */
+    clipKey?: string;
+    /** The designated run's finding page, for "Watch replay". Absent when none was resolved. */
+    replay?: AnalysisCommentReplay;
 }
 
 /** The finalized run the comment summarizes - read from the persisted `AnalysisReport` + open bug `AnalysisIssue`s. */
@@ -194,23 +201,22 @@ export async function buildAnalysisCommentPayload(
     const flows = input.flows ?? [];
     const state: AutonomaCommentState = COMMENT_STATE[verdictState];
 
-    // The visible preview links (the top CTA and each bug's "Open preview") point at
-    // the front door, which forks a browser to the waiting page from an agent to the
-    // raw URL. The raw URL rides along in the hidden machine-readable block - this
-    // comment carries no services list, so without it an agent reading the body would
-    // have no direct preview URL at all.
+    // The visible preview link (the top "See preview" CTA) points at the front door, which forks a browser to the
+    // waiting page from an agent to the raw URL. The raw URL rides along in the hidden machine-readable block - this
+    // comment carries no services list, so without it an agent reading the body would have no direct preview URL.
     const hasPreview = context.previewUrl != null && context.previewUrl !== "";
     const previewFrontDoorUrl = hasPreview
         ? buildPreviewFrontDoorUrl(context.appBaseUrl, context.previewUrl!)
         : undefined;
 
-    const bugs = await Promise.all(
-        input.bugIssues.map((issue) => toBug(issue, context, previewFrontDoorUrl, signScreenshot)),
-    );
+    const [bugs, coverageCards] = await Promise.all([
+        Promise.all(input.bugIssues.map((issue) => toBug(issue, context, signScreenshot))),
+        Promise.all((input.coverageIssues ?? []).map((issue) => toCoverageCardBug(issue, context, signScreenshot))),
+    ]);
 
     const ctas: AutonomaCommentCta[] = [{ label: "Open in Autonoma", href: buildPrUrl(context) }];
     if (previewFrontDoorUrl != null) {
-        ctas.push({ label: "See preview", href: previewFrontDoorUrl });
+        ctas.push({ label: SEE_PREVIEW_CTA_LABEL, href: previewFrontDoorUrl });
     }
 
     return {
@@ -220,7 +226,7 @@ export async function buildAnalysisCommentPayload(
         title: analysisPrTitle(input.title ?? "", verdictState, input.bugIssues.length),
         headline: input.headline ?? analysisVerdictHeadline(input.verdict),
         summary: input.mergeGateBlocking === true ? MERGE_GATE_SKIP_CALLOUT : undefined,
-        flowGroups: buildFlowGroups(input, context, flows),
+        flowGroups: buildFlowGroups(input, context, flows, coverageCards),
         handoff: input.bugIssues.length > 0 ? buildHandoff(input.bugIssues, context) : undefined,
         commitRef: context.commitSha.slice(0, 7),
         assetBaseUrl: context.assetBaseUrl,
@@ -242,40 +248,38 @@ export async function buildAnalysisCommentPayload(
  * checkout" to appear at all, so a run that verified six flows of seven read as pure failure.
  *
  * A `broken` flow is deliberately absent: its bug already has a card above, and repeating it here would report the
- * same problem twice. Every other flow appears exactly once, in the group matching how much of it we established -
- * and a flow the reader can unblock is listed as theirs, since that is the only group they can act on.
+ * same problem twice. The reader's own coverage gaps are absent as flows too - they are carded from their ISSUES,
+ * each with a representative frame, in the "yours to fix" group. What remains here is what verified and what is ours.
  */
 function buildFlowGroups(
     input: AnalysisCommentInput,
     context: AnalysisCommentContext,
     flows: readonly AnalysisFlow[],
+    coverageCards: AutonomaCommentBug[],
 ): AutonomaCommentFlowGroup[] {
     const verified: AnalysisFlow[] = [];
-    const yours: AnalysisFlow[] = [];
     const ours: AnalysisFlow[] = [];
     for (const flow of flows) {
-        if (flow.status === "broken") continue;
         if (flow.status === "verified") verified.push(flow);
-        else if (flow.owner === "client") yours.push(flow);
-        else ours.push(flow);
+        // A `broken` flow's bug is a card above; a client-owned gap is carded from its ISSUE below, not its flow.
+        else if (flow.status !== "broken" && flow.owner !== "client") ours.push(flow);
     }
 
     const prPageUrl = input.prPageUrl ?? buildPrUrl(context);
-    // The reader's issues ride on this group whenever the Reporter filed any, even when no flow landed in it: a flow
-    // that mixes a bug with a client-owned gap is skipped as `broken` (its bug is already a card above), and dropping
-    // the links with it would take the only actionable half out of the comment.
-    const links = (input.coverageIssues ?? []).map((issue) => ({
-        label: issue.title,
-        href: buildAnalysisIssueUrl(context.appBaseUrl, context.appSlug, context.prNumber, issue.id),
-    }));
-
     const groups: AutonomaCommentFlowGroup[] = [];
     if (verified.length > 0) {
         groups.push(toFlowGroup(VERIFIED_HEADING, "attention", verified, [], prPageUrl));
     }
-    if (yours.length > 0 || links.length > 0) {
-        const lines = links.length > 0 ? [YOURS_WHY, YOURS_ISSUES_LEAD] : [YOURS_WHY];
-        groups.push(toFlowGroup(YOURS_HEADING, "attention", yours, lines, prPageUrl, links));
+    // The reader's "what to fix": each client-owned coverage gap as a card, the same rich detail a bug gets.
+    if (coverageCards.length > 0) {
+        groups.push({
+            heading: YOURS_HEADING,
+            tone: "attention",
+            lines: [YOURS_WHY],
+            flows: [],
+            links: [],
+            cards: coverageCards,
+        });
     }
     if (ours.length > 0) {
         groups.push(toFlowGroup(OURS_HEADING, "quiet", ours, [OURS_WHY], prPageUrl));
@@ -300,6 +304,7 @@ function toFlowGroup(
         flows: shown.map(toCommentFlow),
         lines,
         links,
+        cards: [],
         overflow: hidden > 0 ? { count: hidden, href: prPageUrl } : undefined,
     };
 }
@@ -338,7 +343,6 @@ function countFor(coverage: CoverageSummary | undefined, category: AnalysisVerdi
 function toBug(
     issue: AnalysisCommentIssue,
     context: AnalysisCommentContext,
-    previewHref: string | undefined,
     signScreenshot: (s3Key: string) => Promise<string | undefined>,
 ): Promise<AutonomaCommentBug> {
     const issueUrl = buildIssueUrl(issue, context);
@@ -354,7 +358,37 @@ function toBug(
         description: issue.actualBehavior,
         suspectedCause: issue.suspectedCause?.explanation,
         evidence: toEvidence(issue.suspectedCause),
-        previewHref,
+    }));
+}
+
+/**
+ * One client-owned coverage gap as a card - the same rich `<details>` a bug uses, minus the Evidence block, since a
+ * setup gap carries no code evidence. The marker is amber, not red: it is the reader's to fix, but it is not an app
+ * bug. The Reporter's designated run supplies the representative frame and the "Watch replay" target.
+ */
+function toCoverageCardBug(
+    issue: AnalysisCommentCoverageIssue,
+    context: AnalysisCommentContext,
+    signScreenshot: (s3Key: string) => Promise<string | undefined>,
+): Promise<AutonomaCommentBug> {
+    const mediaKey = issue.clipKey ?? issue.screenshotKey;
+    const replayHref =
+        issue.replay != null
+            ? buildAnalysisFindingUrl(
+                  context.appBaseUrl,
+                  context.appSlug,
+                  context.prNumber,
+                  issue.replay.snapshotId,
+                  issue.replay.findingId,
+              )
+            : undefined;
+    return signMedia(mediaKey, signScreenshot).then((screenshotUrl) => ({
+        title: issue.title,
+        href: buildAnalysisIssueUrl(context.appBaseUrl, context.appSlug, context.prNumber, issue.id),
+        markerState: "warning",
+        screenshotUrl,
+        replayHref,
+        description: issue.actualBehavior,
     }));
 }
 

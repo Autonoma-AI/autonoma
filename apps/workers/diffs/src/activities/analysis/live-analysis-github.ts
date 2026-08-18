@@ -10,7 +10,7 @@ import {
 import { getStorage } from "../../services";
 import type { AnalysisGitHub } from "./analysis-github";
 import { concludeMergeGate } from "./apply-merge-gate-verdict";
-import { postAnalysisComment } from "./post-analysis-comment";
+import { postSettledPrComment } from "./post-pr-comment";
 
 /** The production GitHub capability for one settled analysis run. */
 export class LiveAnalysisGitHub implements AnalysisGitHub {
@@ -29,12 +29,12 @@ export class LiveAnalysisGitHub implements AnalysisGitHub {
         this.logger.info("Concluded analysis merge gate", { extra: { outcome: outcome.kind } });
     }
 
-    public async comment(outcome: Extract<AnalysisRunOutcome, { kind: "succeeded" }>): Promise<void> {
-        this.logger.info("Posting analysis PR comment");
+    public async comment(outcome: AnalysisRunOutcome): Promise<void> {
+        this.logger.info("Posting PR comment", { extra: { outcome: outcome.kind } });
         const context = await this.loadContext();
         if (context == null) return;
-        await postAnalysisComment({ db, github: context.github, storage: getStorage(), meta: context.meta, outcome });
-        this.logger.info("Posted analysis PR comment");
+        await postSettledPrComment({ db, github: context.github, storage: getStorage(), meta: context.meta, outcome });
+        this.logger.info("Posted PR comment");
     }
 
     private async loadContext(): Promise<GitHubSettlementContext | undefined> {

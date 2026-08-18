@@ -32,7 +32,9 @@ import { reportBuildWarrant } from "./report-build-warrant";
 import { runAnalysisStages } from "./run-analysis-stages";
 import { withAnalysisRunSettlement } from "./with-analysis-run-settlement";
 
-const analysis = proxyActivities<Pick<AnalysisActivities, "openAnalysisRun" | "openMergeGate" | "runImpactAnalysis">>({
+const analysis = proxyActivities<
+    Pick<AnalysisActivities, "openAnalysisRun" | "openMergeGate" | "postAnalyzingPrComment" | "runImpactAnalysis">
+>({
     startToCloseTimeout: "20m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
@@ -92,7 +94,7 @@ export async function analysisRunWorkflow(input: AnalysisRunWorkflowInput): Prom
     // Nothing downstream can say anything useful yet, so stop after the build. Impact analysis
     // needs a suite to select from and there is none until onboarding produces one; the comment
     // and merge-gate stages already refuse to act on a half-onboarded app for the same reason
-    // (`hasGoneLive` in post-analysis-comment and apply-merge-gate-verdict). Running it
+    // (`hasGoneLive` in post-pr-comment and apply-merge-gate-verdict). Running it
     // anyway spends a model call to reach a selection of zero that means nothing, and - before
     // the exemption above - that zero was what refused the build the customer was waiting for.
     if (resolved.onboardingComplete === false) {
@@ -121,11 +123,17 @@ export async function analysisRunWorkflow(input: AnalysisRunWorkflowInput): Prom
         // stamp the activation. Self-skips for every other run.
         await analysis.openMergeGate({ snapshotId });
 
+        // The reader sees "Autonoma is analyzing this PR" (and the preview status) before impact analysis even runs.
+        await announcePrComment(snapshotId, true);
+
         // Reaching a selection may involve building the preview the Investigators run against - or deciding not to.
         const impact =
             target != null
                 ? await impactWithPreview({ target, branchId, snapshotId, eager })
                 : await runImpactAnalysis(snapshotId, runScopedIds);
+
+        // Reflect the resolved preview (ready, or none needed) before the long investigation begins.
+        await announcePrComment(snapshotId, false);
 
         // An unwarranted build leaves `targets` empty, so the fan-out is a no-op.
         await runAnalysisStages(snapshotId, impact, runScopedIds);
@@ -152,6 +160,23 @@ async function runImpactAnalysis(snapshotId: string, ids: ObservabilityContext):
     const impact = await analysis.runImpactAnalysis({ snapshotId });
     log.info("Impact Analysis complete", { ...ids, extra: { targetCount: impact.targets.length } });
     return impact;
+}
+
+/**
+ * Update the in-flight PR comment, best-effort: the activity already swallows its own failures, but an infra-level
+ * error must not fail the run this comment only narrates. A cancellation still propagates - a superseded run has to
+ * unwind, not linger writing comments.
+ */
+async function announcePrComment(snapshotId: string, firstPost: boolean): Promise<void> {
+    try {
+        await analysis.postAnalyzingPrComment({ snapshotId, firstPost });
+    } catch (error) {
+        if (isCancellation(error)) throw error;
+        log.warn("In-flight PR comment failed; continuing", {
+            snapshot: { snapshotId },
+            extra: { message: rootFailureMessage(error) },
+        });
+    }
 }
 
 /** Start the build now when the warrant is unconditional; otherwise defer until the selection is known. */

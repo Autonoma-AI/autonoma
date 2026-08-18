@@ -7,6 +7,7 @@ import type {
     AutonomaCommentHandoff,
     AutonomaCommentNote,
     AutonomaCommentPayload,
+    AutonomaCommentPreview,
     AutonomaCommentState,
     AutonomaCommentStats,
 } from "./types";
@@ -39,7 +40,8 @@ const STATE_ICONS: Record<AutonomaCommentState, string> = {
 };
 
 // The "See preview" CTA links to the live preview environment; the label keys its image asset and emoji below.
-const SEE_PREVIEW_CTA_LABEL = "See preview";
+// Exported as the one source of truth so the analysis/pr payload builders match on the same string.
+export const SEE_PREVIEW_CTA_LABEL = "See preview";
 
 // The comment is text-first (portable to markdown-only renderers like Linear): most CTAs are plain
 // markdown links. The two top-level CTAs keep an image (a Vercel-style primary + secondary pair) rendered
@@ -56,7 +58,6 @@ const CTA_TEXT_PREFIXES: Record<string, string> = {
     [SEE_PREVIEW_CTA_LABEL]: "👁 ",
     "Watch replay": "🎬 ",
     "See full report": "📄 ",
-    "Open preview": "👁 ",
 };
 
 export function renderMarkdown(payload: AutonomaCommentPayload, options?: { marker?: string }): string {
@@ -69,10 +70,13 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
     // status-pill image, so a markdown-only renderer still shows the state. The bug/warning count in the title
     // is wrapped in a `code` span to stand out, which escaping would otherwise neutralize.
     sections.push("", `## ${renderIcon(payload)}${renderTitle(payload)}`, "");
-    // The analysis comment states its outcome in words. A badge word in front of a nuanced headline would compress it
-    // straight back into the binary the headline exists to replace, so that comment renders the headline alone.
-    if (payload.kind === "analysis") {
-        sections.push(escapeMarkdown(payload.headline));
+    // Section 1 of the unified `pr` comment: the preview environment's status line, above the analysis headline.
+    if (payload.preview != null) sections.push(renderPreviewSection(payload.preview), "");
+    // The analysis and unified comments state their outcome in words. A badge word in front of a nuanced headline
+    // would compress it straight back into the binary the headline exists to replace, so they render the headline
+    // alone - bold, so it reads as the comment's lead line rather than another sentence.
+    if (payload.kind === "analysis" || payload.kind === "pr") {
+        sections.push(`**${escapeMarkdown(payload.headline)}**`);
     } else {
         sections.push(`**${payload.stateLabel ?? STATE_LABELS[payload.state]}** - ${escapeMarkdown(payload.headline)}`);
     }
@@ -97,7 +101,9 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
 
     // The flow itemization sits between the bugs and the CTAs: what breaks, then what this PR has and has not
     // established, then where to go next.
-    for (const group of payload.flowGroups) sections.push("", renderFlowGroup(group));
+    for (const group of payload.flowGroups) {
+        sections.push("", renderFlowGroup(group, payload.state, payload.assetBaseUrl));
+    }
 
     for (const note of payload.notes) sections.push("", renderNote(note));
 
@@ -151,15 +157,30 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
  * reported in words.
  */
 function renderIcon(payload: AutonomaCommentPayload): string {
-    if (payload.kind === "analysis" && payload.state !== "critical") return "";
+    if ((payload.kind === "analysis" || payload.kind === "pr") && payload.state !== "critical") return "";
     return `${STATE_ICONS[payload.state]} `;
+}
+
+/**
+ * Section 1 of the unified `pr` comment (previewkit orgs only): one coarse status line for the preview environment,
+ * rendered as a blockquote so it reads as a status banner set apart from the analysis prose rather than another
+ * sentence. Its state icon + short status copy; the "See preview" button rides the CTA row, not here. Deliberately
+ * not the per-service table; the full breakdown lives on the in-app preview page.
+ */
+function renderPreviewSection(preview: AutonomaCommentPreview): string {
+    const link = preview.link != null ? ` · ${renderTextLink(preview.link.label, preview.link.href)}` : "";
+    return `> ${STATE_ICONS[preview.state]} ${escapeMarkdown(preview.status)}${link}`;
 }
 
 /**
  * One flow group. Same weighting rule as the note blocks below: an `attention` group renders plainly, at the weight
  * of the bug cards, while a `quiet` one is blockquoted because the reader is not being asked to act on it.
  */
-function renderFlowGroup(group: AutonomaCommentFlowGroup): string {
+function renderFlowGroup(
+    group: AutonomaCommentFlowGroup,
+    state: AutonomaCommentState,
+    assetBaseUrl: string | undefined,
+): string {
     const blocks: string[] = [`**${escapeMarkdown(group.heading)}**`];
     if (group.flows.length > 0) {
         blocks.push(group.flows.map(renderFlow).join("\n"));
@@ -172,6 +193,9 @@ function renderFlowGroup(group: AutonomaCommentFlowGroup): string {
     if (group.links.length > 0) {
         blocks.push(group.links.map((link) => `- ${renderTextLink(link.label, link.href)}`).join("\n"));
     }
+    // The reader's scenario issues, each an expandable card like a bug. A setup gap has no code evidence, so the
+    // cards never carry an Evidence block (renderBugDetails omits it when the card has none).
+    for (const card of group.cards) blocks.push(renderBugDetails(card, state, assetBaseUrl));
     const body = blocks.join("\n\n");
     if (group.tone === "attention") return body;
     return body
@@ -449,10 +473,8 @@ function languageForFile(source: string, file: string | undefined): string {
 }
 
 function renderBugLinks(bug: AutonomaCommentBug, assetBaseUrl: string | undefined): string {
-    const buttons: string[] = [];
-    if (bug.href != null) buttons.push(renderCta(assetBaseUrl, "See full report", bug.href));
-    if (bug.previewHref != null) buttons.push(renderCta(assetBaseUrl, "Open preview", bug.previewHref));
-    return buttons.join(" · ");
+    if (bug.href == null) return "";
+    return renderCta(assetBaseUrl, "See full report", bug.href);
 }
 
 /**
@@ -484,8 +506,13 @@ function renderBugOccurrence(bug: AutonomaCommentBug): string {
 
 function renderCtas(payload: AutonomaCommentPayload): string {
     const rendered = payload.ctas.map((cta) => renderCta(payload.assetBaseUrl, cta.label, cta.href));
-    // A plain " · " (not "&nbsp;" or " | ") so markdown-only renderers show a real separator.
-    return rendered.join(" · ");
+    // Image-button CTAs sit directly side by side: a " · " between two buttons renders as a floating dot. Plain-text
+    // CTAs keep the middle-dot (not "&nbsp;" or " | ") so a markdown-only renderer, where the images are stripped to
+    // links, still shows a real separator.
+    const allButtons = payload.ctas.every(
+        (cta) => resolveAssetUrl(payload.assetBaseUrl, CTA_ASSETS[cta.label]) != null,
+    );
+    return rendered.join(allButtons ? " " : " · ");
 }
 
 /**

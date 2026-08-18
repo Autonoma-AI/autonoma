@@ -48,6 +48,8 @@ export type {
     OpenAnalysisSkipReason,
     OpenMergeGateInput,
     OpenMergeGateOutput,
+    PostAnalyzingPrCommentInput,
+    PostAnalyzingPrCommentOutput,
     RunImpactAnalysisInput,
     RunImpactAnalysisOutput,
     RunReporterInput,

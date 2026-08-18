@@ -50,7 +50,7 @@ export async function loadAnalysisCommentInput(snapshotId: string): Promise<Load
         headline: report.headline,
         flows: report.flows,
         coverage: run.coverage,
-        coverageIssues: coverageIssues.map((gap) => toCoverageCard(gap)),
+        coverageIssues: coverageIssues.map((issue) => toCoverageCard(issue)),
         bugIssues: toBugIssues(openBugs),
     };
     logger.info("Loaded analysis PR comment input", {
@@ -64,23 +64,20 @@ export async function loadAnalysisCommentInput(snapshotId: string): Promise<Load
 }
 
 /**
- * Which of the run's coverage gaps the READER owns, from the issues the Reporter attributed them to.
- *
- * `scenario_issue` is theirs by taxonomy. `environment_failure` is not: a preview we could not exercise can be their
- * configuration (a missing flag / SDK key / migration) or our own infrastructure, and the taxonomy deliberately holds
- * no owner field for it. The Reporter's placement is its issue filing - it opens an environment/scenario issue only
- * for a gap the reader can act on - so an env gap attributed to an open one is theirs, and an unattributed gap stays
- * ours.
- *
- * "Unattributed means ours" only holds because a RECURRING gap cannot go unattributed: the Reporter's third coverage
- * guarantee rejects a finish that leaves an open issue uncarried when a covering test hit the same fault again, and
- * carrying it forward re-attributes this run's finding. Weaken that guarantee and a live configuration gap starts
- * reading as our problem on its second run.
- *
- * The store owns the derivation (see `readClientOwnedGaps`); this maps its result to a comment card.
+ * Map a client-owned-gap issue to its comment card: title, the reader-facing description, and the Reporter's
+ * designated run for the representative frame + "Watch replay". The store owns WHICH issues are the reader's - the
+ * scenario/environment ownership derivation lives in `readClientOwnedGaps`.
  */
-function toCoverageCard(gap: { issueId: string; title: string }): AnalysisCommentCoverageIssue {
-    return { id: gap.issueId, title: gap.title };
+function toCoverageCard(issue: Issue): AnalysisCommentCoverageIssue {
+    const instance = issue.designatedRun;
+    return {
+        id: issue.id,
+        title: issue.title,
+        actualBehavior: issue.actualBehavior,
+        screenshotKey: issue.primaryScreenshot?.s3Key,
+        clipKey: instance?.clipKey,
+        replay: instance != null ? { snapshotId: instance.snapshotId, findingId: instance.findingId } : undefined,
+    };
 }
 
 /** Map each open bug issue to a comment card, keeping the ledger's order. */

@@ -27,12 +27,7 @@ export async function settleAnalysisGitHub({ snapshotId, outcome, github }: Sett
         logger.error("Analysis merge-gate settlement failed after database settlement", { extra: { err: error } });
     }
 
-    if (outcome.kind !== "succeeded") {
-        logger.info("Skipping analysis PR comment for unsuccessful run");
-        logger.info("Finished settling analysis GitHub effects");
-        return;
-    }
-
+    // A failed run still gets a comment (could-not-complete); only a superseded run - handled above - writes nothing.
     try {
         await github.comment(outcome);
     } catch (error) {

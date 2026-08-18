@@ -228,13 +228,8 @@ apiTestSuite({
                 actorLogin: "dev-writer",
             });
 
-            // A PR comment announces the run started, attributing the requester, so it is visible in the conversation.
-            const analyzingComments = fixture.fakeClient.comments.filter(
-                (c) => c.repoFullName === fixture.repoFullName && c.body.includes("Autonoma is analyzing this PR"),
-            );
-            expect(analyzingComments).toHaveLength(1);
-            expect(analyzingComments[0]?.body).toContain("@dev-writer");
-            expect(analyzingComments[0]?.body).toContain("This can take a few minutes");
+            // The run is announced by the unified PR comment, which the analysis run workflow posts - not this
+            // synchronous request path - so no announcement is asserted here.
         });
 
         test("a /start analysis comment from a non-write-access user fires no run and leaves the check unchanged", async ({

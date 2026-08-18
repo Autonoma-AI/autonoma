@@ -10,12 +10,6 @@ export const MERGE_GATE_IN_PROGRESS_SUMMARY = "Autonoma is analyzing this PR for
 /** Sentinel conclusion stored while a run is in flight - non-`failure`, so skip/bypass treat it as not-yet-blocking. */
 export const MERGE_GATE_IN_PROGRESS_CONCLUSION = "in_progress";
 
-/** `actorLogin` attributes the run to whoever asked; absent for the automatic auto-run-on-ready trigger. */
-export function buildAnalyzingCommentBody(actorLogin?: string): string {
-    const requester = actorLogin != null ? ` (requested by @${actorLogin})` : "";
-    return `🔍 Autonoma is analyzing this PR${requester}. This can take a few minutes.`;
-}
-
 export const MERGE_GATE_SKIP_COMMAND = "/autonoma-skip";
 
 /** Requires the check on ALL branches, so a PR is gated regardless of its base branch. */

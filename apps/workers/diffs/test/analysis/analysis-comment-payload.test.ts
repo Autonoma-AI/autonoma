@@ -223,7 +223,13 @@ describe("buildAnalysisCommentPayload", () => {
                         testSlugs: ["inv-a", "inv-b", "inv-c", "inv-d"],
                     }),
                 ],
-                coverageIssues: [{ id: "issue_coupon_scenario", title: "Checkout scenario seeds no coupon codes" }],
+                coverageIssues: [
+                    {
+                        id: "issue_coupon_scenario",
+                        title: "Checkout scenario seeds no coupon codes",
+                        actualBehavior: "The coupon field is never seeded, so the discount path never runs.",
+                    },
+                ],
             },
             context,
             sign,
@@ -237,15 +243,20 @@ describe("buildAnalysisCommentPayload", () => {
 
         expect(yours?.heading).toBe("⚠️ Couldn't check - yours to fix");
         expect(yours?.tone).toBe("attention");
-        expect(yours?.flows.map((f) => f.title)).toEqual(["Coupon codes"]);
+        // The client-owned flow is not listed; the scenario issue behind it is carded instead.
+        expect(yours?.flows).toEqual([]);
+        expect(yours?.links).toEqual([]);
         expect(yours?.lines[0]).toContain("block every future run on this branch");
-        // What to fix comes from the issue the Reporter filed, deep-linked to its detail page.
-        expect(yours?.links).toEqual([
-            {
-                label: "Checkout scenario seeds no coupon codes",
-                href: "https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_coupon_scenario",
-            },
-        ]);
+        // Each scenario issue is a card - amber (the reader's to fix, not an app bug), deep-linked to its detail
+        // page, and carrying no Evidence block.
+        expect(yours?.cards).toHaveLength(1);
+        expect(yours?.cards[0]).toMatchObject({
+            title: "Checkout scenario seeds no coupon codes",
+            href: "https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_coupon_scenario",
+            markerState: "warning",
+            description: "The coupon field is never seeded, so the discount path never runs.",
+        });
+        expect(yours?.cards[0]?.evidence).toBeUndefined();
 
         expect(ours?.heading).toBe("Couldn't check - on us");
         expect(ours?.tone).toBe("quiet");
@@ -285,7 +296,7 @@ describe("buildAnalysisCommentPayload", () => {
         expect(payload.flowGroups[0]?.flows[0]?.meta).toBe("carried from an earlier commit");
     });
 
-    it("keeps the reader's issue links when the only client-owned gap sits in a flow that also holds a bug", async () => {
+    it("cards the reader's coverage issue even when its only flow is broken (a bug already cards that flow)", async () => {
         // A flow mixing a client_bug test with a scenario_issue test is skipped as `broken` (its bug is a card), so
         // keying the block on the flow list alone would drop the one actionable thing in the comment.
         const payload = await buildAnalysisCommentPayload(
@@ -293,19 +304,25 @@ describe("buildAnalysisCommentPayload", () => {
                 verdict: verdict("not_confirmed", { coverageGapCount: 1, investigatedCount: 2 }),
                 bugIssues: [bugIssue()],
                 flows: [flow("Checkout", { status: "broken", owner: "client", bugCount: 1, passedCount: 0 })],
-                coverageIssues: [{ id: "issue_coupon_scenario", title: "Checkout scenario seeds no coupon codes" }],
+                coverageIssues: [
+                    {
+                        id: "issue_coupon_scenario",
+                        title: "Checkout scenario seeds no coupon codes",
+                        actualBehavior: "The coupon field is never seeded, so the discount path never runs.",
+                    },
+                ],
             },
             context,
             sign,
         );
 
         const yours = payload.flowGroups.find((group) => group.heading.includes("yours to fix"));
-        expect(yours?.links).toEqual([
-            {
-                label: "Checkout scenario seeds no coupon codes",
-                href: "https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_coupon_scenario",
-            },
-        ]);
+        expect(yours?.cards).toHaveLength(1);
+        expect(yours?.cards[0]).toMatchObject({
+            title: "Checkout scenario seeds no coupon codes",
+            href: "https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_coupon_scenario",
+            markerState: "warning",
+        });
     });
 
     it("leaves a broken flow out of the itemization, since its bug already has a card", async () => {
@@ -474,7 +491,13 @@ describe("buildAnalysisCommentPayload", () => {
                     flow("Invoices", { status: "unverified", owner: "client", passedCount: 0, gapCount: 1 }),
                     flow("Reports", { status: "unverified", owner: "autonoma", passedCount: 0, gapCount: 3 }),
                 ],
-                coverageIssues: [{ id: "issue_seed", title: "Orders scenario seeds no paid invoice" }],
+                coverageIssues: [
+                    {
+                        id: "issue_seed",
+                        title: "Orders scenario seeds no paid invoice",
+                        actualBehavior: "No paid invoice is seeded, so the orders flow never reaches the paid state.",
+                    },
+                ],
             },
             context,
             sign,
@@ -483,7 +506,7 @@ describe("buildAnalysisCommentPayload", () => {
 
         // The Reporter's title is the heading, with no marker: only a bug is raised as an alarm.
         expect(body).toContain("## Orders verified; invoices couldn't be seeded");
-        expect(body).not.toContain("🟡");
+        expect(body).not.toContain("## 🟡");
         // ...and no badge word compressing the headline back into the binary it replaced.
         expect(body).not.toContain("**NOT CONFIRMED**");
         expect(body).toContain("One flow never ran for want of seeded data; three tests could not be stabilized.");
@@ -492,8 +515,11 @@ describe("buildAnalysisCommentPayload", () => {
         expect(body).toContain("**✅ What we verified**");
         expect(body).toContain("- **Orders** - Orders detail");
         expect(body).toContain("**⚠️ Couldn't check - yours to fix**");
+        // The scenario issue is a card, not a bare link: its title is the collapsible summary (amber marker), and
+        // "See full report" points at the issue detail.
+        expect(body).toContain("<summary>🟡 Orders scenario seeds no paid invoice</summary>");
         expect(body).toContain(
-            "[Orders scenario seeds no paid invoice](<https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_seed>)",
+            "See full report](<https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_seed>)",
         );
         // ...while what is ours is blockquoted, so it is visible without being asked of the reader.
         expect(body).toContain("> **Couldn't check - on us**");
@@ -511,7 +537,6 @@ describe("buildAnalysisCommentPayload", () => {
         expect(seePreview?.href).toBe(
             `https://beta.autonoma.app/v1/previewkit/open?to=${encodeURIComponent(context.previewUrl!)}`,
         );
-        expect(payload.bugs[0]?.previewHref).toBe(seePreview?.href);
         // No services list on this comment, so the hidden block is the only raw URL an agent gets.
         expect(payload.previewUrls).toEqual([context.previewUrl]);
     });

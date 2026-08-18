@@ -1,4 +1,3 @@
-import { postOrUpdateCommentOnGithub } from "@autonoma/github/comment";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../../src/config/load-config";
 import { PreviewPipeline } from "../../src/pipeline/preview-pipeline";
@@ -16,13 +15,6 @@ vi.mock("@autonoma/db", () => ({
         },
     },
     Prisma: { DbNull: null },
-}));
-
-vi.mock("@autonoma/github/comment", () => ({
-    createGitHubPrCommentStore: vi.fn(() => ({})),
-    payloadBuilder: vi.fn(() => ({})),
-    postOrUpdateCommentOnGithub: vi.fn(async () => ({ status: "posted", commentId: "100" })),
-    resolveCommentAssetBaseUrl: vi.fn(() => "https://assets.example.com"),
 }));
 
 vi.mock("../../src/config/load-config", () => ({
@@ -83,9 +75,10 @@ function target(prNumber: number) {
 
 /**
  * `prepare` decides, once, whether this deploy may write to the customer's pull request. That
- * decision is returned as `feedbackEnabled` and carried into `finalize`/`fail`, so it is the
- * single point where an application still being set up is kept out of a repository it has no
- * verdict for yet - and where a live one is let back in.
+ * decision is returned as `feedbackEnabled` and carried into `finalize`/`fail`; the PR comment itself
+ * is owned by the analysis run workflow now, so the visible feedback this gate governs is the commit
+ * status. It is the single point where an application still being set up is kept out of a repository it
+ * has no verdict for yet - and where a live one is let back in.
  */
 describe("PreviewPipeline.prepare PR feedback gate", () => {
     beforeEach(() => {
@@ -101,10 +94,9 @@ describe("PreviewPipeline.prepare PR feedback gate", () => {
 
         expect(result).toMatchObject({ skipped: false, feedbackEnabled: false });
         expect(provider.setCommitStatus).not.toHaveBeenCalled();
-        expect(postOrUpdateCommentOnGithub).not.toHaveBeenCalled();
     });
 
-    it("comments and sets a commit status once the application is live", async () => {
+    it("sets a pending commit status once the application is live", async () => {
         const { pipeline, provider } = buildPipeline();
 
         const result = await pipeline.prepare(target(7));
@@ -116,7 +108,6 @@ describe("PreviewPipeline.prepare PR feedback gate", () => {
             "pending",
             expect.any(String),
         );
-        expect(postOrUpdateCommentOnGithub).toHaveBeenCalledTimes(1);
     });
 
     // Fails closed: an application with no onboarding row at all is not live. Every caller here is
@@ -129,7 +120,6 @@ describe("PreviewPipeline.prepare PR feedback gate", () => {
 
         expect(result).toMatchObject({ feedbackEnabled: false });
         expect(provider.setCommitStatus).not.toHaveBeenCalled();
-        expect(postOrUpdateCommentOnGithub).not.toHaveBeenCalled();
     });
 
     // Environment 0 is the base preview and has no pull request to comment on. It was quiet before
@@ -141,10 +131,9 @@ describe("PreviewPipeline.prepare PR feedback gate", () => {
 
         expect(result).toMatchObject({ feedbackEnabled: false });
         expect(provider.setCommitStatus).not.toHaveBeenCalled();
-        expect(postOrUpdateCommentOnGithub).not.toHaveBeenCalled();
     });
 
-    // The gate decides feedback only. Holding back the comment must never hold back the preview,
+    // The gate decides feedback only. Holding back the commit status must never hold back the preview,
     // which is the whole point of building during onboarding.
     it("still prepares the environment when feedback is held back", async () => {
         onboardingStep = "previewkit_configuring";

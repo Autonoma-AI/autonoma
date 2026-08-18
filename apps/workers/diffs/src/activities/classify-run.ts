@@ -14,6 +14,8 @@ import {
 import { lokiQuerier } from "@autonoma/diffs/analysis/logs/loki";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import {
+    ANALYSIS_VERDICT,
+    analysisCoverageOwner,
     type AnalysisRunTarget,
     getStepOverlayPoints,
     type InvestigationRunStep,
@@ -261,10 +263,22 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
 }
 
 /**
- * For a confirmed client bug with a run recording, render a short GIF of the failure and upload it, so the
- * investigation PR comment can embed an inline clip. Best-effort and client-bug-only: any failure (no video,
- * ffmpeg error, upload error) returns undefined and the comment falls back to the key-frame screenshot, if the
- * classifier named one.
+ * A clip is worth encoding only for a finding the comment features: a client bug, or a client-ownable coverage gap
+ * (scenario / environment) that becomes a "yours to fix" card. Passing tests, engine artifacts, and unresolved or
+ * removed tests never show a clip, so a GIF for them would be pure waste. `client_bug` is app-health, not a coverage
+ * gap, so it is admitted explicitly; the coverage side derives from the ownership SSOT.
+ */
+function isClipWorthy(category: string): boolean {
+    if (category === ANALYSIS_VERDICT.client_bug) return true;
+    const owner = analysisCoverageOwner(category);
+    return owner === "client" || owner === "undecided";
+}
+
+/**
+ * For a finding the comment can feature - a client bug, or a client-ownable coverage gap that becomes a "yours to
+ * fix" card - render a short GIF of the run and upload it, so the card can embed an inline clip. Best-effort: any
+ * failure (no video, ffmpeg error, upload error) returns undefined and the card falls back to the key-frame
+ * screenshot, if the classifier named one.
  */
 async function maybeGenerateClip(
     category: string,
@@ -272,7 +286,7 @@ async function maybeGenerateClip(
     testGenerationId: string,
     logger: Logger,
 ): Promise<string | undefined> {
-    if (category !== "client_bug" || video == null) return undefined;
+    if (!isClipWorthy(category) || video == null) return undefined;
     const gif = await webmToGif(video, logger);
     if (gif == null) return undefined;
     const key = `test-generation/${testGenerationId}/clip.gif`;

@@ -52,7 +52,6 @@ export const AutonomaCommentBugSchema = z.object({
      */
     suspectedCause: z.string().optional(),
     evidence: z.array(AutonomaCommentEvidenceSchema).optional(),
-    previewHref: z.string().optional(),
 });
 export type AutonomaCommentBug = z.infer<typeof AutonomaCommentBugSchema>;
 
@@ -103,6 +102,12 @@ export const AutonomaCommentFlowGroupSchema = z.object({
     flows: z.array(AutonomaCommentFlowSchema).default([]),
     /** The issues behind the group's flows - the reader's "what to fix", in the Reporter's own words. */
     links: z.array(AutonomaCommentCtaSchema).default([]),
+    /**
+     * Rich issue cards rendered under the group's prose - the "yours to fix" scenario issues, each a bug-style
+     * `<details>` (representative frame, "Watch replay", description, "See full report") with NO Evidence block,
+     * since a setup gap carries no code evidence.
+     */
+    cards: z.array(AutonomaCommentBugSchema).default([]),
     /** How many flows were cut from a capped group, and where the reader sees all of them. */
     overflow: z.object({ count: z.number().int().positive(), href: z.string() }).optional(),
 });
@@ -142,6 +147,19 @@ export const AutonomaCommentHandoffSchema = z.object({
 });
 export type AutonomaCommentHandoff = z.infer<typeof AutonomaCommentHandoffSchema>;
 
+/**
+ * Section 1 of the unified `pr` comment: a single coarse status line for the branch's preview environment - present
+ * only for previewkit orgs, whose preview Autonoma builds. `status` is our copy for the current build state; `link`
+ * points at the reachable preview (front door) when there is one. The full per-service breakdown lives on the in-app
+ * preview page, never here.
+ */
+export const AutonomaCommentPreviewSchema = z.object({
+    state: AutonomaCommentStateSchema,
+    status: z.string(),
+    link: AutonomaCommentCtaSchema.optional(),
+});
+export type AutonomaCommentPreview = z.infer<typeof AutonomaCommentPreviewSchema>;
+
 export const AutonomaCommentPayloadSchema = z.object({
     state: AutonomaCommentStateSchema,
     /**
@@ -151,8 +169,10 @@ export const AutonomaCommentPayloadSchema = z.object({
      * - `analysis`: the authoritative analysis comment, which states its own outcome in {@link title} and
      *   {@link headline} rather than through a state badge. Only a bug carries a status colour there; every other
      *   outcome is reported in words, because a run that verified six flows of seven has no honest colour.
+     * - `pr`: the single Autonoma PR comment, which renders like `analysis` (outcome in words) and additionally
+     *   shows a {@link preview} status section on top when the org's preview is Autonoma-hosted.
      */
-    kind: z.enum(["preview", "analysis"]).optional(),
+    kind: z.enum(["preview", "analysis", "pr"]).optional(),
     prNumber: z.number().int().positive(),
     /**
      * Overrides the default badge word for `state`. Absent means the renderer's generic per-state label. Not rendered
@@ -191,6 +211,8 @@ export const AutonomaCommentPayloadSchema = z.object({
     warnings: z.array(z.string()).default([]),
     details: z.array(z.object({ summary: z.string(), body: z.string() })).default([]),
     handoff: AutonomaCommentHandoffSchema.optional(),
+    /** Section 1 of the `pr` comment: the preview environment's status line. Absent on every other comment kind. */
+    preview: AutonomaCommentPreviewSchema.optional(),
     /**
      * Raw preview URLs for machines. The visible "See preview" CTA points at the
      * front door (which forks browser vs. agent), so a coding agent reading this

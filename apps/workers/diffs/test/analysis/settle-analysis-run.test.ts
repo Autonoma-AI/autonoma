@@ -15,17 +15,18 @@ describe("settleAnalysisGitHub", () => {
         });
 
         expect(github.checkAttempts).toBe(1);
-        expect(github.comments).toEqual(["analysis"]);
+        expect(github.comments).toEqual(["pr"]);
     });
 
-    test("writes a neutral check and no comment for a failed run", async () => {
+    test("writes a neutral check and still posts a comment for a failed run", async () => {
         const github = new FakeAnalysisGitHub();
         const outcome: AnalysisRunOutcome = { kind: "failed", reason: "Reporter failed" };
 
         await settleAnalysisGitHub({ snapshotId: "snapshot-1", outcome, github });
 
+        // The unified PR comment renders a failed run (could-not-complete), so it posts here too.
         expect(github.checkConclusions).toEqual(["neutral"]);
-        expect(github.comments).toEqual([]);
+        expect(github.comments).toEqual(["pr"]);
     });
 
     test("does not contact GitHub for a superseded run", async () => {
@@ -48,7 +49,7 @@ describe("settleAnalysisGitHub", () => {
         });
 
         expect(github.checkConclusions).toEqual(["success"]);
-        expect(github.comments).toEqual(["analysis"]);
+        expect(github.comments).toEqual(["pr"]);
     });
 });
 
@@ -65,6 +66,6 @@ class FakeAnalysisGitHub implements AnalysisGitHub {
     }
 
     public async comment(): Promise<void> {
-        this.comments.push("analysis");
+        this.comments.push("pr");
     }
 }

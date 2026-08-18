@@ -9,7 +9,7 @@ import type {
 } from "@autonoma/types";
 import { BranchLedger } from "./branch-ledger";
 import { AnalysisSnapshotNotFoundError } from "./errors";
-import { type ClientOwnedGap, readClientOwnedGaps } from "./queries/client-owned-gaps";
+import { readClientOwnedGaps } from "./queries/client-owned-gaps";
 import { readPlaneSummary } from "./queries/finding-coverage";
 import { type Finding, type FindingIdentity, readFindingIds, readFindings } from "./queries/read-findings";
 import { type Issue, readIssues } from "./queries/read-issues";
@@ -162,10 +162,10 @@ export class Analysis {
 
     /**
      * The open, non-bug issues behind this run's client-owned coverage gaps, most actionable first - what the PR
-     * comment asks the reader to fix. A narrow read that never loads a finding's run trace or evidence. See
-     * {@link readClientOwnedGaps}.
+     * comment asks the reader to fix, each loaded in full (with its designated run and media) so the comment can
+     * card them. See {@link readClientOwnedGaps}.
      */
-    public async clientOwnedCoverageIssues(): Promise<ClientOwnedGap[]> {
+    public async clientOwnedCoverageIssues(): Promise<Issue[]> {
         return readClientOwnedGaps(this.db, this.snapshotId);
     }
 

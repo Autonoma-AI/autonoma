@@ -55,6 +55,18 @@ export interface OpenMergeGateOutput {
     status: "opened" | "skipped";
 }
 
+export interface PostAnalyzingPrCommentInput {
+    /** The branch's real pending snapshot the run operates on. */
+    snapshotId: string;
+    /** True for the run's first comment write - reposts a fresh comment at the bottom and clears the legacy comments. */
+    firstPost: boolean;
+}
+
+export interface PostAnalyzingPrCommentOutput {
+    /** How the comment resolved; `skipped` covers a BYO run with no PR, a stale head, or any best-effort failure. */
+    status: "posted" | "updated" | "skipped";
+}
+
 export interface RunImpactAnalysisInput {
     /** The branch's real pending snapshot the pipeline operates on. */
     snapshotId: string;
@@ -395,6 +407,12 @@ export interface AnalysisActivities {
      * through the API's `requestAnalysisRun`.
      */
     openMergeGate(input: OpenMergeGateInput): Promise<OpenMergeGateOutput>;
+    /**
+     * Post/update the single Autonoma PR comment for a run still in flight - "Autonoma is analyzing this PR", with
+     * the preview status section on top for a previewkit org. Best-effort: it never throws, so a comment failure
+     * cannot fail the run.
+     */
+    postAnalyzingPrComment(input: PostAnalyzingPrCommentInput): Promise<PostAnalyzingPrCommentOutput>;
     runImpactAnalysis(input: RunImpactAnalysisInput): Promise<RunImpactAnalysisOutput>;
     /**
      * Start one execution of a target's pinned plan - the only way a run begins. Called by the

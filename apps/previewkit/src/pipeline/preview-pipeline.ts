@@ -2,19 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { db } from "@autonoma/db";
-import {
-    createGitHubPrCommentStore,
-    payloadBuilder,
-    postOrUpdateCommentOnGithub,
-    resolveCommentAssetBaseUrl,
-} from "@autonoma/github/comment";
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
-import {
-    buildPreviewFrontDoorUrl,
-    DEFAULT_DEPENDENCY_FALLBACK_BRANCH,
-    hasGoneLive,
-    resolvePrimaryUrl,
-} from "@autonoma/types";
+import { DEFAULT_DEPENDENCY_FALLBACK_BRANCH, hasGoneLive, resolvePrimaryUrl } from "@autonoma/types";
 import type {
     DeployPreviewEnvironmentInput,
     DeployPreviewEnvironmentOutput,
@@ -51,7 +40,6 @@ import { runHookJob } from "../deployer/hook-job-runner";
 import { detectBlueprintFacts } from "../dockerfile-builder/detect-blueprint-facts";
 import { generateDockerfile } from "../dockerfile-builder/generate-dockerfile";
 import { resolveBuildTurboFilter } from "../dockerfile-builder/resolve-build-turbo-filter";
-import { env } from "../env";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import { enrichRepositoryShas } from "../multirepo/enrich-repository-shas";
@@ -251,43 +239,8 @@ export class PreviewPipeline {
             logger.info("Prepare step 3/6 set initial pending commit status", { repo: repoFullName, pr: prNumber });
         }
 
-        let commentId = "";
-        if (feedbackEnabled) {
-            logger.info("Prepare step 4/6 posting initial PR comment", { repo: repoFullName, pr: prNumber });
-            const result = await postOrUpdateCommentOnGithub({
-                client: this.provider,
-                store: createGitHubPrCommentStore(db, "preview"),
-                repoFullName,
-                prNumber,
-                lastCommitSha: headSha,
-                staleGuard: "allow-new-head",
-                // Each deploy reposts a fresh comment at the bottom of the PR; finalize()/fail()
-                // then update that same comment in place.
-                mode: "repost",
-                payload: payloadBuilder({
-                    state: "running",
-                    kind: "preview",
-                    prNumber,
-                    commitSha: headSha,
-                    assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
-                    message: "Autonoma received this commit and is building the preview environment.",
-                }),
-            }).catch((err) => {
-                logger.warn("Failed to post or update initial PR comment", {
-                    repo: repoFullName,
-                    pr: prNumber,
-                    err: err instanceof Error ? err.message : String(err),
-                });
-                return null;
-            });
-
-            commentId = result?.status === "posted" || result?.status === "updated" ? result.commentId : "";
-            logger.info("Prepare step 4/6 posted initial PR comment", {
-                repo: repoFullName,
-                pr: prNumber,
-                commentId,
-            });
-        }
+        // Unused; kept threaded as an empty string so the namespace/env row contract is unchanged.
+        const commentId = "";
 
         logger.info("Prepare step 5/6 ensuring namespace", { repo: repoFullName, pr: prNumber });
         const namespace = await this.deployer.ensureNamespace(repoFullName, prNumber, organizationId, {
@@ -1227,17 +1180,15 @@ export class PreviewPipeline {
     }
 
     /**
-     * Step 4 - the GitHub side effects that must land: update the PR comment with
-     * the per-app status table, set the final commit status, and create the GitHub
-     * deployment + deployment status (for the Deployments UI and any BYO
-     * `deployment_status` workflow). For PreviewKit-managed apps the analysis run
-     * is owned by the orchestrator that asked for this build, not started from
-     * this deployment target.
+     * Step 4 - the GitHub side effects that must land: set the final commit status, and create the GitHub
+     * deployment + deployment status (for the Deployments UI and any BYO `deployment_status` workflow). For
+     * PreviewKit-managed apps the analysis run is owned by the orchestrator that asked for this build, not started
+     * from this deployment target.
      */
     async finalize(
         target: PreviewDeployTarget,
         _namespace: string,
-        commentId: string,
+        _commentId: string,
         feedbackEnabled: boolean,
         result: DeployPreviewEnvironmentOutput,
     ): Promise<void> {
@@ -1252,33 +1203,8 @@ export class PreviewPipeline {
             feedbackEnabled,
         });
 
-        if (feedbackEnabled && commentId !== "") {
-            logger.info("Finalize step 1/3 updating PR comment with result table", {
-                repo: repoFullName,
-                pr: prNumber,
-                commentId,
-            });
-            await postOrUpdateCommentOnGithub({
-                client: this.provider,
-                store: createGitHubPrCommentStore(db, "preview"),
-                repoFullName,
-                prNumber,
-                lastCommitSha: headSha,
-                commentId,
-                payload: await this.buildResultPayload(prNumber, headSha, result),
-            });
-            logger.info("Finalize step 1/3 updated PR comment", { repo: repoFullName, pr: prNumber });
-        } else {
-            logger.info("Finalize step 1/3 skipping PR comment update", {
-                repo: repoFullName,
-                pr: prNumber,
-                feedbackEnabled,
-                hasCommentId: commentId !== "",
-            });
-        }
-
         if (feedbackEnabled) {
-            logger.info("Finalize step 2/3 setting final commit status", {
+            logger.info("Finalize setting final commit status", {
                 repo: repoFullName,
                 pr: prNumber,
                 ready: result.ready,
@@ -1344,14 +1270,13 @@ export class PreviewPipeline {
     }
 
     /**
-     * Failure finalizer - records the failed status/phase (environment row plus any
-     * app row still in flight) and surfaces the error on the PR comment + commit
-     * status. Best-effort: never throws.
+     * Failure finalizer - records the failed status/phase (environment row plus any app row still in flight) and
+     * surfaces the error on the commit status. Best-effort: never throws.
      */
     async fail(
         target: PreviewDeployTarget,
         namespace: string,
-        commentId: string,
+        _commentId: string,
         feedbackEnabled: boolean,
         error: string,
     ): Promise<void> {
@@ -1389,39 +1314,6 @@ export class PreviewPipeline {
         void this.logSink?.append(namespace, { kind: "status", message: "failed" });
         void this.logSink?.seal(namespace);
         logger.info("Fail step 1/3 recorded failed status", { repo: repoFullName, pr: prNumber, namespace });
-
-        if (feedbackEnabled && commentId !== "") {
-            logger.info("Fail step 2/3 updating PR comment with failure", {
-                repo: repoFullName,
-                pr: prNumber,
-                commentId,
-            });
-            await postOrUpdateCommentOnGithub({
-                client: this.provider,
-                store: createGitHubPrCommentStore(db, "preview"),
-                repoFullName,
-                prNumber,
-                lastCommitSha: headSha,
-                commentId,
-                payload: payloadBuilder({
-                    state: "critical",
-                    kind: "preview",
-                    prNumber,
-                    commitSha: headSha,
-                    assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
-                    message: "Autonoma could not finish building the preview environment.",
-                    details: [{ summary: "Preview deployment error", body: error }],
-                }),
-            }).catch((e) => logger.error("Failed to update failure comment", e));
-            logger.info("Fail step 2/3 updated PR comment with failure", { repo: repoFullName, pr: prNumber });
-        } else {
-            logger.info("Fail step 2/3 skipping failure PR comment", {
-                repo: repoFullName,
-                pr: prNumber,
-                feedbackEnabled,
-                hasCommentId: commentId !== "",
-            });
-        }
 
         if (feedbackEnabled) {
             logger.info("Fail step 3/3 setting failure commit status", { repo: repoFullName, pr: prNumber });
@@ -1970,48 +1862,6 @@ export class PreviewPipeline {
             onLog: (line) => this.appendHookLog(namespace, appName, line),
         });
     }
-
-    /** Builds the PR comment payload from the flat deploy result. */
-    private async buildResultPayload(prNumber: number, headSha: string, result: DeployPreviewEnvironmentOutput) {
-        const services = result.services.map((service) => ({
-            name: service.name,
-            status: service.status,
-            url: service.url,
-            error: service.error,
-        }));
-
-        const serviceErrorDetails = result.services
-            .filter((service) => service.error != null && service.error !== "")
-            .map((service) => ({ summary: `${service.name} - error`, body: service.error! }));
-
-        // The visible "See preview" CTA points at the front door, which forks a
-        // browser (-> waiting page) from an agent (-> 307 to the raw URL). The raw
-        // URL still rides along in the hidden machine-readable block so an agent
-        // reading the comment body has a direct link.
-        const previewUrl = result.previewUrl;
-        return payloadBuilder({
-            state: result.ready ? "running" : "critical",
-            kind: "preview",
-            prNumber,
-            commitSha: headSha,
-            assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
-            previewUrl: previewUrl != null ? buildPreviewFrontDoorUrl(env.APP_URL, previewUrl) : undefined,
-            previewUrls: previewUrl != null ? [previewUrl] : [],
-            message: result.ready
-                ? "Preview is ready. Autonoma can run the selected tests against this commit."
-                : `${result.readyCount}/${result.totalCount} preview services are ready. Autonoma cannot run the full sweep yet.`,
-            services,
-            warnings: result.warnings,
-            details: serviceErrorDetails,
-        });
-    }
-}
-
-function resolvePreviewkitCommentAssetBaseUrl(): string {
-    return resolveCommentAssetBaseUrl({
-        explicitAssetBaseUrl: env.GITHUB_COMMENT_ASSET_BASE_URL,
-        appUrl: env.APP_URL,
-    });
 }
 
 async function recordSafe(fn: () => Promise<void>): Promise<void> {
