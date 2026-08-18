@@ -1,5 +1,4 @@
 import {
-  Badge,
   cn,
   InteractionBadge,
   type OverlayPoint,
@@ -7,28 +6,27 @@ import {
   Separator,
   VideoPlayer,
 } from "@autonoma/blacklight";
-import type { InvestigationEvidence, InvestigationFinding, InvestigationRunStep } from "@autonoma/types";
+import type { InvestigationFinding, InvestigationRunStep } from "@autonoma/types";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
-import { CodeBlock, evidencePermalink } from "components/investigation/code-block";
-import type { FindingBadgeVariant } from "components/investigation/finding-category";
+import { VerdictBadge } from "components/analysis/verdict-badge";
+import {
+  ClassificationErrorBlock,
+  ObservedAppIssuesNote,
+  ProseSection,
+  VerdictEvidence,
+} from "components/analysis/verdict-story";
 import { NavigableLightbox, type NavigableStep } from "components/screenshot-lightbox";
 import { type ReactNode, useState } from "react";
-
-export interface FindingBadgeMeta {
-  label: string;
-  variant: FindingBadgeVariant;
-}
 
 /**
  * The full evidence page for a single finding: media, run trace, what-happened / root cause, and code
  * evidence. Presentational and surface-agnostic - the investigation view and the authoritative analysis view
- * both render it, each resolving the finding from its own report store and supplying the matching category
- * `meta` and a `backLink` targeting its own list. `repoFullName` / `commitSha` are optional; without them the
+ * both render it, each resolving the finding from its own report store and supplying a `backLink` targeting
+ * its own list. `repoFullName` / `commitSha` are optional; without them the
  * code-evidence permalinks simply do not render.
  */
 export function FindingDetail({
   finding,
-  meta,
   backLink,
   issueLink,
   footer,
@@ -36,7 +34,6 @@ export function FindingDetail({
   commitSha,
 }: {
   finding: InvestigationFinding;
-  meta: FindingBadgeMeta;
   backLink: ReactNode;
   /** An up-link to the branch-scoped issue this finding was clustered into (analysis findings only). */
   issueLink?: ReactNode;
@@ -54,9 +51,7 @@ export function FindingDetail({
         </div>
         <h1 className="text-2xl font-medium tracking-tight text-text-primary">{finding.headline}</h1>
         <div className="flex flex-wrap items-center gap-2 font-mono text-2xs text-text-secondary">
-          <Badge variant={meta.variant} className="uppercase">
-            {meta.label}
-          </Badge>
+          <VerdictBadge verdict={finding.category} />
           <span>{finding.slug}</span>
           {finding.confidence != null && <span>· {finding.confidence} confidence</span>}
           {finding.planFidelity != null && <span>· plan: {finding.planFidelity}</span>}
@@ -66,11 +61,7 @@ export function FindingDetail({
       </header>
 
       {finding.error != null ? (
-        <Section title="Classification error">
-          <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-surface-void p-4 font-mono text-2xs text-text-secondary">
-            {finding.error}
-          </pre>
-        </Section>
+        <ClassificationErrorBlock level={2} error={finding.error} />
       ) : (
         <FindingBody finding={finding} repoFullName={repoFullName} commitSha={commitSha} />
       )}
@@ -108,48 +99,26 @@ function FindingBody({
         </div>
       )}
 
-      {finding.expectedBehavior != null && (
-        <Section title="Expected">
-          <p className="text-sm leading-relaxed text-text-primary">{finding.expectedBehavior}</p>
-        </Section>
-      )}
+      <ProseSection title="Expected" level={2}>
+        {finding.expectedBehavior}
+      </ProseSection>
+      <ProseSection title="Actual" level={2}>
+        {finding.actualBehavior}
+      </ProseSection>
+      <ProseSection title="What happened" level={2}>
+        {finding.whatHappened}
+      </ProseSection>
+      <ProseSection title="Why it could not be stabilized" level={2}>
+        {finding.planMismatchNote}
+      </ProseSection>
+      <ProseSection title="Why this test was removed" level={2}>
+        {finding.invalidTestNote}
+      </ProseSection>
+      <ProseSection title="Remediation" level={2}>
+        {finding.remediation}
+      </ProseSection>
 
-      {finding.actualBehavior != null && (
-        <Section title="Actual">
-          <p className="text-sm leading-relaxed text-text-primary">{finding.actualBehavior}</p>
-        </Section>
-      )}
-
-      {finding.whatHappened != null && (
-        <Section title="What happened">
-          <p className="text-sm leading-relaxed text-text-primary">{finding.whatHappened}</p>
-        </Section>
-      )}
-
-      {finding.planMismatchNote != null && finding.planMismatchNote.trim() !== "" && (
-        <Section title="Why it could not be stabilized">
-          <p className="text-sm leading-relaxed text-text-primary">{finding.planMismatchNote}</p>
-        </Section>
-      )}
-
-      {finding.invalidTestNote != null && finding.invalidTestNote.trim() !== "" && (
-        <Section title="Why this test was removed">
-          <p className="text-sm leading-relaxed text-text-primary">{finding.invalidTestNote}</p>
-        </Section>
-      )}
-
-      {finding.remediation != null && (
-        <Section title="Remediation">
-          <p className="text-sm leading-relaxed text-text-primary">{finding.remediation}</p>
-        </Section>
-      )}
-
-      {finding.observedAppIssues != null && (
-        <div className="rounded-lg border border-status-warn/30 bg-status-warn/5 px-4 py-3 text-sm leading-relaxed text-text-primary">
-          <span className="font-medium">App issues observed: </span>
-          {finding.observedAppIssues}
-        </div>
-      )}
+      <ObservedAppIssuesNote>{finding.observedAppIssues}</ObservedAppIssuesNote>
 
       {hasRunTrace(finding) && (
         <Section title="Run trace - what the run actually did">
@@ -169,15 +138,7 @@ function FindingBody({
         </Section>
       )}
 
-      {finding.evidence.length > 0 && (
-        <Section title="Evidence">
-          <div className="flex flex-col gap-3">
-            {finding.evidence.map((item, i) => (
-              <EvidenceItem key={i} item={item} repoFullName={repoFullName} commitSha={commitSha} />
-            ))}
-          </div>
-        </Section>
-      )}
+      <VerdictEvidence evidence={finding.evidence} level={2} repoFullName={repoFullName} commitSha={commitSha} />
 
       {finding.suggestedFixDiff != null && (
         <Section title="Suggested test fix">
@@ -187,17 +148,12 @@ function FindingBody({
 
       {(finding.rootCause != null || finding.falsePositiveRisk != null) && <Separator />}
 
-      {finding.rootCause != null && (
-        <Section title="Root cause">
-          <p className="text-sm leading-relaxed text-text-secondary">{finding.rootCause}</p>
-        </Section>
-      )}
-
-      {finding.falsePositiveRisk != null && (
-        <Section title="False-positive check">
-          <p className="text-sm leading-relaxed text-text-secondary">{finding.falsePositiveRisk}</p>
-        </Section>
-      )}
+      <ProseSection title="Root cause" level={2} tone="secondary">
+        {finding.rootCause}
+      </ProseSection>
+      <ProseSection title="False-positive check" level={2} tone="secondary">
+        {finding.falsePositiveRisk}
+      </ProseSection>
     </div>
   );
 }
@@ -221,51 +177,6 @@ function MediaPanel({ finding }: { finding: InvestigationFinding }) {
       )}
       {finding.videoUrl != null && (
         <VideoPlayer src={finding.videoUrl} optimizedSrc={finding.optimizedVideoUrl} label="Run recording" />
-      )}
-    </div>
-  );
-}
-
-function EvidenceItem({
-  item,
-  repoFullName,
-  commitSha,
-}: {
-  item: InvestigationEvidence;
-  repoFullName?: string;
-  commitSha?: string;
-}) {
-  const permalink = evidencePermalink(item, repoFullName, commitSha);
-  const snippet = item.snippet;
-  const fileLabel =
-    item.file != null
-      ? `${item.repo != null ? `${item.repo} › ` : ""}${item.file}${item.lines != null ? `:${item.lines}` : ""}`
-      : undefined;
-  return (
-    <div className="flex flex-col gap-2">
-      {item.detail !== "" && (
-        <p className="text-sm leading-relaxed text-text-secondary">
-          <span className="mr-2 font-mono text-3xs uppercase text-text-secondary">[{item.source}]</span>
-          {item.detail}
-        </p>
-      )}
-      {snippet != null && snippet !== "" ? (
-        <CodeBlock code={snippet} file={item.file} lines={item.lines} sourceLabel={item.source} permalink={permalink} />
-      ) : (
-        fileLabel != null && (
-          <div className="flex items-center gap-2 rounded-md border border-border-dim bg-surface-raised px-3 py-2 font-mono text-3xs">
-            <Badge variant="outline" className="uppercase">
-              {item.source}
-            </Badge>
-            {permalink != null ? (
-              <a href={permalink} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                {fileLabel}
-              </a>
-            ) : (
-              <span className="text-text-primary">{fileLabel}</span>
-            )}
-          </div>
-        )
       )}
     </div>
   );

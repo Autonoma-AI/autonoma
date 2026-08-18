@@ -465,7 +465,7 @@ function sortExecutedTests(tests: PRExecutedTest[]): PRExecutedTest[] {
 function TestSuiteChangesButton({ prNumber, snapshotId }: { prNumber: number; snapshotId: string }) {
   return (
     <AppLink
-      to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes"
+      to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running"
       params={{ prNumber, snapshotId }}
       className="ml-auto inline-flex items-center gap-1 font-mono text-2xs font-semibold uppercase tracking-widest text-text-primary transition-colors hover:underline"
     >
@@ -495,7 +495,7 @@ function CompactTestsRun({
           <span className="text-text-secondary">
             {suiteChangeCount} test suite {suiteChangeCount === 1 ? "change" : "changes"} were made -{" "}
             <AppLink
-              to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes"
+              to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running"
               params={{ prNumber, snapshotId }}
               className="text-text-primary hover:underline"
             >

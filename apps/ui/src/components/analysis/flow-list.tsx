@@ -8,7 +8,7 @@ import {
 } from "@autonoma/types";
 import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
-import { analysisVerdictMeta } from "components/analysis/verdict-meta";
+import { VerdictBadge } from "components/analysis/verdict-badge";
 import type * as React from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
@@ -177,7 +177,6 @@ function FlowFindingRow({
   prNumber: number;
   snapshotId: string;
 }) {
-  const meta = analysisVerdictMeta(finding.category);
   return (
     <li>
       <AppLink
@@ -185,9 +184,7 @@ function FlowFindingRow({
         params={{ prNumber, snapshotId, findingId: finding.id }}
         className="group/row flex items-center gap-2 py-1 transition-colors hover:text-text-primary"
       >
-        <Badge variant={meta.variant} className="shrink-0 font-mono text-3xs uppercase tracking-wider">
-          {meta.label}
-        </Badge>
+        <VerdictBadge verdict={finding.category} />
         <span className="min-w-0 flex-1 truncate text-xs text-text-primary">{finding.testCase.name}</span>
         <ArrowUpRightIcon
           size={12}

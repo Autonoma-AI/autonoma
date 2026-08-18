@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "./button";
 
@@ -30,6 +30,8 @@ export interface VideoPlayerProps {
   className?: string;
   /** Extra classes for the `<video>` element itself (e.g. a max-height cap). */
   videoClassName?: string;
+  /** Extra controls rendered at the right end of the control row, after the speed selector. */
+  actions?: ReactNode;
 }
 
 /**
@@ -46,6 +48,7 @@ export function VideoPlayer({
   originalRate = DEFAULT_ORIGINAL_RATE,
   className,
   videoClassName,
+  actions,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasOptimized = optimizedSrc != null;
@@ -119,6 +122,7 @@ export function VideoPlayer({
             </Button>
           ))}
         </div>
+        {actions}
       </div>
     </figure>
   );

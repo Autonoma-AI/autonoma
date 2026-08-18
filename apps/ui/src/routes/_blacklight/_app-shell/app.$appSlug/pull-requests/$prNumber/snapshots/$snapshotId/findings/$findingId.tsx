@@ -3,7 +3,6 @@ import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { createFileRoute } from "@tanstack/react-router";
 import { SelfHealHistory } from "components/analysis/self-heal-history";
-import { analysisVerdictMeta } from "components/analysis/verdict-meta";
 import { FindingDetail } from "components/investigation/finding-detail";
 import { useAnalysisReport } from "lib/query/branches.queries";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
@@ -35,7 +34,6 @@ function AnalysisFindingDetailPage() {
   return (
     <FindingDetail
       finding={finding}
-      meta={analysisVerdictMeta(finding.category)}
       backLink={backLink}
       issueLink={<IssueUpLink finding={finding} prNumber={prNumber} />}
       footer={<SelfHealHistory classifications={finding.classifications} />}

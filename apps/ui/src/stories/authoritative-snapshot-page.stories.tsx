@@ -3,7 +3,6 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
-import { userEvent, within } from "storybook/test";
 import { withRunSignals } from "./analysis-run-signals";
 
 /** The analysis report as the snapshot page's tRPC output types it - what the fixtures below are checked against. */
@@ -190,6 +189,151 @@ const analysisReportData: AnalysisReportFixture = {
 };
 
 const analysisReport: NonNullable<TrpcFixtures["branches"]> = { analysisReport: analysisReportData };
+
+type AnalysisRunFixture = NonNullable<NonNullable<TrpcFixtures["branches"]>["analysisRun"]>;
+type AnalysisFindingDetailFixture = NonNullable<NonNullable<TrpcFixtures["branches"]>["analysisFindingDetail"]>;
+
+const RUN_STARTED_AT = new Date("2026-01-01T11:18:00.000Z");
+
+/** What this checkpoint did to each test's plan - drives the run rows' neutral change chips. */
+const CHANGE_BY_SLUG: Record<string, AnalysisRunFixture["findings"][number]["change"]> = {
+  "guest-add-to-cart": "created",
+  "cart-badge-count": "edited",
+};
+
+// The settled run view behind the running stage: the same five tests as the report, every generation terminal,
+// plus one test this checkpoint's changes removed without it ever being selected (the "Removed" stub row).
+const analysisRunData: AnalysisRunFixture = {
+  findings: analysisReportData.findings.map((finding) => ({
+    findingId: finding.id,
+    testCase: finding.testCase,
+    origin: finding.origin,
+    selectionReason: finding.selectionReason,
+    selfHealed: finding.selfHealed,
+    generationStatus: "success",
+    verdict: { category: finding.category, headline: finding.headline },
+    contained: false,
+    change: CHANGE_BY_SLUG[finding.slug],
+    startedAt: RUN_STARTED_AT,
+    completedAt: RUN_AT,
+  })),
+  removedTests: [
+    {
+      testCase: { id: "tc_legacy_quote_flow", name: "legacy-quote-flow.md", slug: "legacy-quote-flow" },
+      previousPlan:
+        "1. Open the quotes page.\n2. Create a quote for the featured item.\n3. Assert the quote appears in the list.",
+    },
+  ],
+  selection: { targetCount: 5, affectedCount: 4, proposedCount: 1 },
+};
+
+// The mid-run view: one test judged, one still executing, the rest queued. The removed stub is already known -
+// suite changes exist from selection time.
+const analysisRunLive: AnalysisRunFixture = {
+  findings: analysisRunData.findings.map((row, index) => {
+    if (index === 0) return { ...row, verdict: undefined, generationStatus: "running", completedAt: undefined };
+    if (index === 1) return row;
+    return { ...row, verdict: undefined, generationStatus: undefined, startedAt: undefined, completedAt: undefined };
+  }),
+  removedTests: analysisRunData.removedTests,
+  selection: analysisRunData.selection,
+};
+
+// The drawer's payload for the client-bug finding: the verdict story plus the generation it judged, steps and
+// recording included. The steps deliberately end on the failed assertion the verdict is about.
+const findingDetailData: AnalysisFindingDetailFixture = {
+  findingId: "checkout-place-order",
+  snapshotId: SNAPSHOT_ID,
+  testCase: {
+    id: "tc_checkout-place-order",
+    name: "checkout-place-order.md",
+    slug: "checkout-place-order",
+    description: "A signed-in customer with a saved card completes checkout from the cart page.",
+  },
+  origin: "pre_existing",
+  selfHealed: false,
+  contained: false,
+  change: undefined,
+  iterations: [
+    {
+      number: 1,
+      category: "client_bug",
+      headline: "Place order button never enables on the checkout page",
+      createdAt: RUN_AT,
+    },
+  ],
+  classification: {
+    number: 1,
+    category: "client_bug",
+    confidence: "high",
+    headline: "Place order button never enables on the checkout page",
+    createdAt: RUN_AT,
+    expectedBehavior: "With a valid saved card and a complete shipping address, the Place order button enables.",
+    actualBehavior: "Every field validated but the Place order button stayed disabled.",
+    remediation:
+      "Recompute form validity after the address-validation promise settles, or gate the button on the " +
+      "validated address flag instead of the stale mount-time value.",
+    rootCause:
+      "The submit handler reads a `formValid` flag that is computed once on mount and never recomputed after " +
+      "the async address-validation promise resolves.",
+    evidence: [
+      { source: "run", detail: "The Place order button kept aria-disabled after all fields were valid." },
+      {
+        source: "code",
+        detail: "The submit handler never re-reads validity once address validation resolves.",
+        file: "src/checkout/PlaceOrder.tsx",
+        lines: "42-58",
+        snippet: PLACE_ORDER_SNIPPET,
+      },
+    ],
+    keyScreenshotUrl: MOCK_SCREENSHOT,
+  },
+  generation: {
+    id: "gen_checkout-place-order",
+    status: "success",
+    startedAt: RUN_STARTED_AT,
+    completedAt: RUN_AT,
+    videoUrl: "https://assets.autonoma.app/test-generation/demo/video.webm",
+    steps: [
+      {
+        order: 1,
+        interaction: "navigate",
+        params: { url: "https://app.acme.example.com/cart" },
+        status: "success",
+        screenshotBefore: MOCK_SCREENSHOT,
+      },
+      {
+        order: 2,
+        interaction: "click",
+        params: { description: "the Checkout button" },
+        status: "success",
+        output: { point: { x: 620, y: 512 } },
+        overlayPoints: [{ x: 620, y: 512, role: "click" }],
+        screenshotBefore: MOCK_SCREENSHOT,
+      },
+      {
+        order: 3,
+        interaction: "type",
+        params: { text: "1 Market St, San Francisco, CA", description: "the shipping address field" },
+        status: "success",
+        output: { point: { x: 600, y: 376 } },
+        overlayPoints: [{ x: 600, y: 376, role: "click" }],
+        screenshotBefore: MOCK_SCREENSHOT,
+      },
+      {
+        order: 4,
+        interaction: "assert",
+        params: { instruction: "the Place order button is enabled" },
+        status: "failed",
+        error: "The Place order button kept aria-disabled after every field was valid.",
+        errorName: "VerificationError",
+        screenshotBefore: MOCK_SCREENSHOT,
+      },
+    ],
+  },
+  plan: "1. Sign in as the seeded customer.\n2. Add the featured item to the cart.\n3. Check out with the saved card.\n4. Assert the confirmation page shows the order number.",
+  previousPlan: undefined,
+};
 
 /**
  * The same run plus one test the Investigator could not stabilize: it classified the plan as wrong on a healthy app,
@@ -521,6 +665,8 @@ const pageFixtures: TrpcFixtures = {
     ...analysisIssueDetail,
     analysisIssues,
     analysisJob: completedJob,
+    analysisRun: analysisRunData,
+    analysisFindingDetail: findingDetailData,
   },
 };
 
@@ -539,6 +685,7 @@ function jobStateFixtures(
       ...pageFixtures.branches,
       analysisReport: null,
       analysisJob,
+      analysisRun: analysisRunLive,
       snapshotReport: {
         ...baseReport,
         health: failed ? "critical" : "running",
@@ -565,33 +712,43 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-/** The per-job view: the report prose, the run's verdict + findings list, and the issue-set changes this job made. */
+/** The bare snapshot URL for a settled run: the index redirect lands on the Report stage. */
 export const Report: Story = {
   args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}` },
 };
 
-/**
- * The suite-changes tab, driven by the run's findings: all five investigated tests are listed, including the three
- * the run left unedited (Checked) that no plan diff would surface. The selected row shows its verdict, why it was
- * selected, and the links to its finding and the generation that produced it.
- */
-export const Changes: Story = {
-  args: {
-    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/changes/cart-badge-count`,
-  },
+/** The Impact analysis stage: the selection reasoning and the selected tests with their per-test reasons. */
+export const Impact: Story = {
+  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/impact` },
 };
 
 /**
- * The same row with the plan toggled to its diff: the rewritten assertion reads as a two-word edit rather than two
- * near-identical blocks of prose the reader has to compare by eye.
+ * The Running tests stage for a settled run: the verdict-grouped list with colored group titles, neutral change
+ * chips, the self-heal mark, per-row timing, and the merged "Removed" group (the judged `invalid_test` removal
+ * would sit beside the PR-removed stub).
  */
-export const ChangesPlanDiff: Story = {
+export const RunningTests: Story = {
+  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/running` },
+};
+
+/** The finding drawer over the running stage: summary tab with the recording / key-frame toggle. */
+export const Drawer: Story = {
   args: {
-    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/changes/cart-badge-count`,
+    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/running/finding/checkout-place-order`,
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByRole("button", { name: "Diff" }));
+};
+
+/** The drawer's steps tab: params-as-prose instructions, outputs, and frames with interaction overlays. */
+export const DrawerSteps: Story = {
+  args: {
+    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/running/finding/checkout-place-order?tab=steps`,
+  },
+};
+
+/** The stub drawer for a test this checkpoint removed without ever selecting it: identity + the deleted plan. */
+export const RemovedStub: Story = {
+  args: {
+    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/running/removed/tc_legacy_quote_flow`,
   },
 };
 
@@ -615,7 +772,7 @@ export const Issue: Story = {
  * defect the classifier misdiagnosed. It is still non-blocking - the run's bug count stays at one.
  */
 export const ReportNeedsReview: Story = {
-  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}` },
+  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/report` },
   parameters: {
     msw: {
       handlers: appShellHandlers({
@@ -638,15 +795,13 @@ export const ReportNeedsReview: Story = {
 };
 
 /**
- * The suite-changes tab with a REMOVED test in it: the Investigator classified this test `invalid_test` (it drives a
- * feature the app never had), so it dropped the assignment and the test appears under "Removed". The selected row shows
- * the "Invalid test" verdict and why it was pulled. The `invalid_test` finding is swapped in for the engine_artifact so
- * the run's coverage count stays correct.
+ * The running stage with a REMOVED-by-the-run test in it: the Investigator classified this test `invalid_test`
+ * (it drives a feature the app never had), so its finding row lists under the merged "Removed" group beside the
+ * PR-removed stub. The `invalid_test` finding is swapped in for the engine_artifact so the run's coverage count
+ * stays correct.
  */
-export const ChangesRemoved: Story = {
-  args: {
-    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/changes/export-report-pdf`,
-  },
+export const RunningTestsRemoved: Story = {
+  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/running` },
   parameters: {
     msw: {
       handlers: appShellHandlers({
@@ -659,13 +814,31 @@ export const ChangesRemoved: Story = {
               .filter((finding) => finding.slug !== "payment-iframe")
               .concat(INVALID_TEST_FINDING),
           },
+          analysisRun: {
+            ...analysisRunData,
+            findings: analysisRunData.findings
+              .filter((row) => row.testCase.slug !== "payment-iframe")
+              .concat({
+                findingId: INVALID_TEST_FINDING.id,
+                testCase: INVALID_TEST_FINDING.testCase,
+                origin: INVALID_TEST_FINDING.origin,
+                selectionReason: INVALID_TEST_FINDING.selectionReason,
+                selfHealed: false,
+                generationStatus: "success",
+                verdict: { category: "invalid_test", headline: INVALID_TEST_FINDING.headline },
+                contained: false,
+                change: "removed",
+                startedAt: RUN_STARTED_AT,
+                completedAt: RUN_AT,
+              }),
+          },
         },
       }),
     },
   },
 };
 
-/** A run still in flight: no report yet, so the page shows the AnalysisJob "Analyzing" status instead of findings. */
+/** A run still in flight, landing on the running stage: judged, executing and queued rows polling live. */
 export const Running: Story = {
   args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}` },
   parameters: {
@@ -687,16 +860,6 @@ export const Failed: Story = {
             "The Reporter timed out after 20m (3 suite changes discarded; they will be recomputed on the next push)",
         }),
       ),
-    },
-  },
-};
-
-/** The suite-changes tab for a failed run: the discarded-changes notice, not the raw plan diff. */
-export const ChangesFailed: Story = {
-  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/changes` },
-  parameters: {
-    msw: {
-      handlers: appShellHandlers(jobStateFixtures({ status: "failed", startedAt: FIXTURE_EPOCH, completedAt: RUN_AT })),
     },
   },
 };

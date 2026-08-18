@@ -1,27 +1,23 @@
-import { cn, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
+import { Skeleton } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
-import { Outlet, createFileRoute, notFound, useLocation } from "@tanstack/react-router";
+import { Outlet, createFileRoute, notFound, useMatchRoute } from "@tanstack/react-router";
 import { AnalysisJobStatus } from "components/analysis/analysis-job-status";
-import { AnalysisReportBody } from "components/analysis/analysis-report-body";
-import { ReasoningPanel } from "components/snapshot/reasoning-panel";
+import { AnalysisStageTabs, deriveAnalysisStage } from "components/analysis/analysis-stage-tabs";
 import { SnapshotReportHeader } from "components/snapshot/snapshot-report-header";
-import { SnapshotReportTabs } from "components/snapshot/snapshot-report-tabs";
-import type { SnapshotDetail } from "components/snapshot/snapshot-types";
-import { SuiteChangesSummary } from "components/snapshot/suite-changes-summary";
 import {
   ensureAnalysisJobData,
   ensureAnalysisReportData,
+  ensureAnalysisRunData,
   ensureAnalysisSnapshotIssueChangesData,
   ensureFullSnapshotDetailData,
   ensureSnapshotReportData,
   useAnalysisJob,
   useAnalysisReport,
-  useFullSnapshotDetail,
+  useAnalysisRun,
   useSnapshotReport,
 } from "lib/query/branches.queries";
 import { Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
-import { CheckpointTestsRun } from "../../../-components/checkpoint-tests-run";
 
 export const Route = createFileRoute(
   "/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId",
@@ -36,6 +32,7 @@ export const Route = createFileRoute(
       ensureSnapshotReportData(context.queryClient, snapshotId),
       ensureFullSnapshotDetailData(context.queryClient, snapshotId),
       ensureAnalysisJobData(context.queryClient, snapshotId),
+      ensureAnalysisRunData(context.queryClient, snapshotId),
       ensureAnalysisReportData(context.queryClient, snapshotId),
       ensureAnalysisSnapshotIssueChangesData(context.queryClient, snapshotId),
     ]);
@@ -56,75 +53,38 @@ function SnapshotReportLayout() {
 function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; snapshotId: string }) {
   const { appSlug } = Route.useParams();
   const { data: report } = useSnapshotReport(snapshotId);
-  const { data: detail } = useFullSnapshotDetail(snapshotId);
-  // `detail.analyzed` is the page-level gate, so this page cannot choose a different pipeline than the header
-  // badge above it. The report supplies the content once it lands and polls until then (driven by the job's
-  // status); while it is still null the run's lifecycle status stands in.
-  const { analyzed } = detail;
-  const { data: analysisJob } = useAnalysisJob(snapshotId);
-  const { data: analysisReport } = useAnalysisReport(snapshotId, { jobStatus: analysisJob?.status });
-  const location = useLocation();
-  const activeTab = location.pathname.includes("/changes") ? "changes" : "report";
-  const showingChanges = activeTab === "changes";
-  // The analysis finding-detail page owns the full screen (its own header + back link), so render only its Outlet.
-  const showingFindings = location.pathname.includes("/findings");
-  if (showingFindings) return <Outlet />;
+  const { data: job } = useAnalysisJob(snapshotId);
+  const { data: run } = useAnalysisRun(snapshotId, { jobStatus: job?.status });
+  const { data: analysisReport } = useAnalysisReport(snapshotId, { jobStatus: job?.status });
+  const matchRoute = useMatchRoute();
+  // The full-screen finding page owns the whole screen (its own header + back link); when it is the active leaf,
+  // render only its Outlet so it is not wrapped in the stage chrome.
+  const onFindingDetail = matchRoute({
+    to: "/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings",
+    params: { appSlug, prNumber, snapshotId },
+    fuzzy: true,
+  });
+  if (onFindingDetail) return <Outlet />;
 
-  return (
-    <div className={cn("flex flex-col gap-6", showingChanges && "lg:h-full")}>
-      <SnapshotReportHeader report={report} prNumber={prNumber} snapshotId={snapshotId} />
-
-      <SnapshotReportTabs appSlug={appSlug} prNumber={prNumber} snapshotId={snapshotId} activeTab={activeTab} />
-
-      {showingChanges ? (
-        <div className="flex flex-col lg:min-h-0 lg:flex-1">
-          <Outlet />
-        </div>
-      ) : analyzed ? (
-        analysisReport != null ? (
-          <div className="flex flex-col gap-6">
-            <AnalysisReportBody report={analysisReport} prNumber={prNumber} snapshotId={snapshotId} />
-            {analysisReport.impactReasoning != null && (
-              <ReasoningPanel
-                title="Impact analysis"
-                content={analysisReport.impactReasoning}
-                empty="Analysis has not produced a selection summary yet."
-              />
-            )}
-          </div>
-        ) : analysisJob != null ? (
-          <AnalysisJobStatus job={analysisJob} />
-        ) : undefined
-      ) : (
-        <SnapshotReportBody detail={detail} prNumber={prNumber} />
-      )}
-    </div>
-  );
-}
-
-function SnapshotReportBody({ detail, prNumber }: { detail: SnapshotDetail; prNumber: number }) {
   return (
     <div className="flex flex-col gap-6">
-      <SuiteChangesSummary detail={detail} prNumber={prNumber} />
-      <TestsRunPanel detail={detail} />
-    </div>
-  );
-}
+      <SnapshotReportHeader report={report} prNumber={prNumber} snapshotId={snapshotId} />
 
-function TestsRunPanel({ detail }: { detail: SnapshotDetail }) {
-  return (
-    <Panel>
-      <PanelHeader>
-        <PanelTitle>Tests run</PanelTitle>
-      </PanelHeader>
-      <PanelBody>
-        <CheckpointTestsRun
-          executedTests={detail.executedTests}
-          totalTests={detail.healthCounts.totalTests}
-          executionState={detail.summary?.executionState}
-        />
-      </PanelBody>
-    </Panel>
+      {job?.status === "failed" ? (
+        // A failed run has no stages to walk - it shows why it failed.
+        <AnalysisJobStatus job={job} />
+      ) : (
+        <>
+          <AnalysisStageTabs
+            prNumber={prNumber}
+            snapshotId={snapshotId}
+            currentStage={deriveAnalysisStage(run, analysisReport != null)}
+            jobRunning={job?.status === "running"}
+          />
+          <Outlet />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -132,12 +92,12 @@ function PageSkeleton({ prNumber }: { prNumber: number }) {
   return (
     <div className="flex flex-col gap-6">
       <header className="space-y-3">
-        <div className="flex items-center gap-2 text-text-tertiary">
+        <div className="flex items-center gap-2 text-text-secondary">
           <AppLink
             to="/app/$appSlug/pull-requests/$prNumber"
             params={{ prNumber }}
             aria-label="Back to pull request"
-            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-text-tertiary transition-colors hover:bg-surface-raised hover:text-text-primary"
+            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
           >
             <ArrowLeftIcon size={12} />
           </AppLink>
@@ -146,6 +106,8 @@ function PageSkeleton({ prNumber }: { prNumber: number }) {
         <Skeleton className="h-8 w-96" />
         <Skeleton className="h-5 w-160 max-w-full" />
       </header>
+      <Skeleton className="h-8 w-full" />
+      <Skeleton className="h-64 w-full" />
     </div>
   );
 }

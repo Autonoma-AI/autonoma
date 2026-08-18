@@ -1,4 +1,4 @@
-import { Badge, Panel, PanelBody, PanelHeader, PanelTitle } from "@autonoma/blacklight";
+import { Panel, PanelBody, PanelHeader, PanelTitle } from "@autonoma/blacklight";
 import {
   type AnalysisFindingTier,
   type AnalysisFindingView,
@@ -6,7 +6,7 @@ import {
   analysisFindingTier,
 } from "@autonoma/types";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
-import { analysisVerdictMeta } from "components/analysis/verdict-meta";
+import { VerdictBadge } from "components/analysis/verdict-badge";
 import { useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
@@ -111,7 +111,6 @@ function FindingRow({
   prNumber: number;
   snapshotId: string;
 }) {
-  const meta = analysisVerdictMeta(finding.category);
   return (
     <li>
       <AppLink
@@ -119,9 +118,7 @@ function FindingRow({
         params={{ prNumber, snapshotId, findingId: finding.id }}
         className="flex items-center gap-4 rounded-lg border border-border-dim bg-surface-void px-4 py-3 transition-colors hover:border-border-mid hover:bg-surface-raised"
       >
-        <Badge variant={meta.variant} className="shrink-0 font-mono uppercase">
-          {meta.label}
-        </Badge>
+        <VerdictBadge verdict={finding.category} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm text-text-primary">{finding.headline}</p>
           <p className="truncate font-mono text-2xs text-text-secondary">

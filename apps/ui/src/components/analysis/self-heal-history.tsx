@@ -1,7 +1,6 @@
-import { Badge } from "@autonoma/blacklight";
 import type { AnalysisClassificationSummary } from "@autonoma/types";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
-import { analysisVerdictMeta } from "components/analysis/verdict-meta";
+import { VerdictBadge } from "components/analysis/verdict-badge";
 import { useAuth } from "lib/auth";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
@@ -46,14 +45,11 @@ function HistoryRow({
   classification: AnalysisClassificationSummary;
   isCurrent: boolean;
 }) {
-  const meta = analysisVerdictMeta(classification.category);
   return (
     <li className="flex flex-col gap-1 border-l border-border-dim pl-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-2xs text-text-secondary">#{classification.number}</span>
-        <Badge variant={meta.variant} className="uppercase">
-          {meta.label}
-        </Badge>
+        <VerdictBadge verdict={classification.category} />
         {isCurrent && <span className="font-mono text-2xs uppercase tracking-widest text-text-secondary">current</span>}
       </div>
       <p className="text-sm leading-relaxed text-text-primary">{classification.headline}</p>

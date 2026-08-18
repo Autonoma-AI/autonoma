@@ -69,11 +69,13 @@ import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberIssuesIssueIdR
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsPreviewRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/_tabs/preview'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/route'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/index'
+import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdReportRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/report'
+import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdImpactRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/impact'
+import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/route'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/route'
-import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/route'
-import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/index'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsFindingIdRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/$findingId'
-import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/$testId'
+import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRemovedTestCaseIdRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/removed.$testCaseId'
+import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningFindingFindingIdRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/finding.$findingId'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -437,6 +439,33 @@ const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdIndexRo
         BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute,
     } as any,
   )
+const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdReportRoute =
+  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdReportRouteImport.update(
+    {
+      id: '/report',
+      path: '/report',
+      getParentRoute: () =>
+        BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute,
+    } as any,
+  )
+const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdImpactRoute =
+  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdImpactRouteImport.update(
+    {
+      id: '/impact',
+      path: '/impact',
+      getParentRoute: () =>
+        BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute,
+    } as any,
+  )
+const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRoute =
+  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteImport.update(
+    {
+      id: '/running',
+      path: '/running',
+      getParentRoute: () =>
+        BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute,
+    } as any,
+  )
 const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRoute =
   BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRouteImport.update(
     {
@@ -444,24 +473,6 @@ const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFinding
       path: '/findings',
       getParentRoute: () =>
         BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute,
-    } as any,
-  )
-const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRoute =
-  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteImport.update(
-    {
-      id: '/changes',
-      path: '/changes',
-      getParentRoute: () =>
-        BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute,
-    } as any,
-  )
-const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesIndexRoute =
-  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesIndexRouteImport.update(
-    {
-      id: '/',
-      path: '/',
-      getParentRoute: () =>
-        BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRoute,
     } as any,
   )
 const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsFindingIdRoute =
@@ -473,13 +484,22 @@ const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFinding
         BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRoute,
     } as any,
   )
-const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRoute =
-  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRouteImport.update(
+const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRemovedTestCaseIdRoute =
+  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRemovedTestCaseIdRouteImport.update(
     {
-      id: '/$testId',
-      path: '/$testId',
+      id: '/removed/$testCaseId',
+      path: '/removed/$testCaseId',
       getParentRoute: () =>
-        BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRoute,
+        BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRoute,
+    } as any,
+  )
+const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningFindingFindingIdRoute =
+  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningFindingFindingIdRouteImport.update(
+    {
+      id: '/finding/$findingId',
+      path: '/finding/$findingId',
+      getParentRoute: () =>
+        BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRoute,
     } as any,
   )
 
@@ -540,12 +560,14 @@ export interface FileRoutesByFullPath {
   '/app/$appSlug/pull-requests/$prNumber/preview': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsPreviewRoute
   '/app/$appSlug/pull-requests/$prNumber/issues/$issueId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberIssuesIssueIdRoute
   '/app/$appSlug/pull-requests/$prNumber/': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsIndexRoute
-  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteWithChildren
   '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRouteWithChildren
+  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteWithChildren
+  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/impact': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdImpactRoute
+  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/report': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdReportRoute
   '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdIndexRoute
-  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/$testId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRoute
   '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/$findingId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsFindingIdRoute
-  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesIndexRoute
+  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/finding/$findingId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningFindingFindingIdRoute
+  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/removed/$testCaseId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRemovedTestCaseIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof BlacklightAppShellIndexRoute
@@ -597,10 +619,13 @@ export interface FileRoutesByTo {
   '/app/$appSlug/pull-requests/$prNumber/preview': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsPreviewRoute
   '/app/$appSlug/pull-requests/$prNumber/issues/$issueId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberIssuesIssueIdRoute
   '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRouteWithChildren
+  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteWithChildren
+  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/impact': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdImpactRoute
+  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/report': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdReportRoute
   '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdIndexRoute
-  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/$testId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRoute
   '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/$findingId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsFindingIdRoute
-  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesIndexRoute
+  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/finding/$findingId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningFindingFindingIdRoute
+  '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/removed/$testCaseId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRemovedTestCaseIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -663,12 +688,14 @@ export interface FileRoutesById {
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/_tabs/preview': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsPreviewRoute
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/issues/$issueId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberIssuesIssueIdRoute
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/_tabs/': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsIndexRoute
-  '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteWithChildren
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRouteWithChildren
+  '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteWithChildren
+  '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/impact': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdImpactRoute
+  '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/report': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdReportRoute
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdIndexRoute
-  '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/$testId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRoute
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/$findingId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsFindingIdRoute
-  '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesIndexRoute
+  '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/finding/$findingId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningFindingFindingIdRoute
+  '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/removed/$testCaseId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRemovedTestCaseIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -729,12 +756,14 @@ export interface FileRouteTypes {
     | '/app/$appSlug/pull-requests/$prNumber/preview'
     | '/app/$appSlug/pull-requests/$prNumber/issues/$issueId'
     | '/app/$appSlug/pull-requests/$prNumber/'
-    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes'
     | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings'
+    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running'
+    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/impact'
+    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/report'
     | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/'
-    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/$testId'
     | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/$findingId'
-    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/'
+    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/finding/$findingId'
+    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/removed/$testCaseId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -786,10 +815,13 @@ export interface FileRouteTypes {
     | '/app/$appSlug/pull-requests/$prNumber/preview'
     | '/app/$appSlug/pull-requests/$prNumber/issues/$issueId'
     | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings'
+    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running'
+    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/impact'
+    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/report'
     | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId'
-    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/$testId'
     | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/$findingId'
-    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes'
+    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/finding/$findingId'
+    | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/removed/$testCaseId'
   id:
     | '__root__'
     | '/_blacklight'
@@ -851,12 +883,14 @@ export interface FileRouteTypes {
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/_tabs/preview'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/issues/$issueId'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/_tabs/'
-    | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings'
+    | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running'
+    | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/impact'
+    | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/report'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/'
-    | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/$testId'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/$findingId'
-    | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/'
+    | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/finding/$findingId'
+    | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/removed/$testCaseId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1291,26 +1325,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdIndexRouteImport
       parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute
     }
+    '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/report': {
+      id: '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/report'
+      path: '/report'
+      fullPath: '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/report'
+      preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdReportRouteImport
+      parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute
+    }
+    '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/impact': {
+      id: '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/impact'
+      path: '/impact'
+      fullPath: '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/impact'
+      preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdImpactRouteImport
+      parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute
+    }
+    '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running': {
+      id: '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running'
+      path: '/running'
+      fullPath: '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running'
+      preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteImport
+      parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute
+    }
     '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings': {
       id: '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings'
       path: '/findings'
       fullPath: '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings'
       preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRouteImport
       parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute
-    }
-    '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes': {
-      id: '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes'
-      path: '/changes'
-      fullPath: '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes'
-      preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteImport
-      parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRoute
-    }
-    '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/': {
-      id: '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/'
-      path: '/'
-      fullPath: '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/'
-      preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesIndexRouteImport
-      parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRoute
     }
     '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/$findingId': {
       id: '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/$findingId'
@@ -1319,12 +1360,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsFindingIdRouteImport
       parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRoute
     }
-    '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/$testId': {
-      id: '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/$testId'
-      path: '/$testId'
-      fullPath: '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes/$testId'
-      preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRouteImport
-      parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRoute
+    '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/removed/$testCaseId': {
+      id: '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/removed/$testCaseId'
+      path: '/removed/$testCaseId'
+      fullPath: '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/removed/$testCaseId'
+      preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRemovedTestCaseIdRouteImport
+      parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRoute
+    }
+    '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/finding/$findingId': {
+      id: '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/finding/$findingId'
+      path: '/finding/$findingId'
+      fullPath: '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/running/finding/$findingId'
+      preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningFindingFindingIdRouteImport
+      parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRoute
     }
   }
 }
@@ -1434,24 +1482,6 @@ const BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsRouteRouteWithChildren
     BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsRouteRouteChildren,
   )
 
-interface BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteChildren {
-  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRoute
-  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesIndexRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesIndexRoute
-}
-
-const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteChildren: BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteChildren =
-  {
-    BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRoute:
-      BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesTestIdRoute,
-    BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesIndexRoute:
-      BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesIndexRoute,
-  }
-
-const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteWithChildren =
-  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRoute._addFileChildren(
-    BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteChildren,
-  )
-
 interface BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRouteChildren {
   BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsFindingIdRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsFindingIdRoute
 }
@@ -1467,18 +1497,42 @@ const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFinding
     BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRouteChildren,
   )
 
+interface BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteChildren {
+  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningFindingFindingIdRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningFindingFindingIdRoute
+  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRemovedTestCaseIdRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRemovedTestCaseIdRoute
+}
+
+const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteChildren: BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteChildren =
+  {
+    BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningFindingFindingIdRoute:
+      BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningFindingFindingIdRoute,
+    BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRemovedTestCaseIdRoute:
+      BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRemovedTestCaseIdRoute,
+  }
+
+const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteWithChildren =
+  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRoute._addFileChildren(
+    BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteChildren,
+  )
+
 interface BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRouteChildren {
-  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteWithChildren
   BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRouteWithChildren
+  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteWithChildren
+  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdImpactRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdImpactRoute
+  BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdReportRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdReportRoute
   BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdIndexRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdIndexRoute
 }
 
 const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRouteChildren: BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRouteChildren =
   {
-    BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRoute:
-      BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChangesRouteRouteWithChildren,
     BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRoute:
       BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRouteWithChildren,
+    BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRoute:
+      BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRunningRouteRouteWithChildren,
+    BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdImpactRoute:
+      BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdImpactRoute,
+    BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdReportRoute:
+      BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdReportRoute,
     BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdIndexRoute:
       BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdIndexRoute,
   }

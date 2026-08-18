@@ -62,6 +62,52 @@ export async function ensureAnalysisJobData(queryClient: QueryClient, snapshotId
 }
 
 /**
+ * The live view of an analysis run - its findings (born at selection, unjudged rows included) with each test's
+ * latest generation status, timing and suite-change kind, the PR-removed stub rows, and the selection summary.
+ * `null` for a diffs snapshot. Drives the checkpoint page's impact and running stages, which have data before
+ * the report settles.
+ *
+ * Pass the run's `jobStatus` to keep polling while the run is still executing (`running`): the per-test statuses
+ * and verdicts change as the fan-out progresses. A terminal run's findings are fixed, so it settles to no polling.
+ */
+export function useAnalysisRun(snapshotId: string, opts?: { jobStatus?: AnalysisJobStatus }) {
+    const jobStatus = opts?.jobStatus;
+    return useSuspenseQuery({
+        ...trpc.branches.analysisRun.queryOptions({ snapshotId }),
+        refetchInterval: () => (jobStatus === "running" ? 5000 : false),
+        refetchIntervalInBackground: true,
+    });
+}
+
+export async function ensureAnalysisRunData(queryClient: QueryClient, snapshotId: string) {
+    return await ensureAPIQueryData(queryClient, trpc.branches.analysisRun.queryOptions({ snapshotId }));
+}
+
+/**
+ * One finding in full for the checkpoint drawer: iteration history, the selected iteration's verdict story, the
+ * generation behind it with live steps, and the plan with this checkpoint's change to it. `null` for an unknown
+ * finding or iteration - the drawer renders a graceful not-found.
+ *
+ * Pass the run's `jobStatus` to keep the drawer live mid-run: steps stream in and the verdict lands without a
+ * reload. Terminal runs are fixed, so the query settles to no polling.
+ */
+export function useAnalysisFindingDetail(
+    findingId: string,
+    opts?: { iteration?: number; jobStatus?: AnalysisJobStatus },
+) {
+    const jobStatus = opts?.jobStatus;
+    return useSuspenseQuery({
+        ...trpc.branches.analysisFindingDetail.queryOptions({ findingId, iteration: opts?.iteration }),
+        refetchInterval: () => (jobStatus === "running" ? 5000 : false),
+        refetchIntervalInBackground: true,
+    });
+}
+
+export async function ensureAnalysisFindingDetailData(queryClient: QueryClient, findingId: string, iteration?: number) {
+    await ensureAPIQueryData(queryClient, trpc.branches.analysisFindingDetail.queryOptions({ findingId, iteration }));
+}
+
+/**
  * The branch's analysis issues (all statuses, branch-scoped) for the PR page. The open ones drive the
  * issues-first list + verdict headline; resolved ones are included so the report prose's `issue:` tokens can link
  * them. A suspense query; empty for a branch with no issues. Only rendered once the run's report has landed (the

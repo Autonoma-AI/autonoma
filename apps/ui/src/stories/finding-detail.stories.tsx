@@ -1,6 +1,5 @@
 import type { InvestigationFinding } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { analysisVerdictMeta } from "components/analysis/verdict-meta";
 import { FindingDetail } from "components/investigation/finding-detail";
 
 /**
@@ -69,7 +68,6 @@ export const WithOptimizedToggle: Story = {
       ...baseFinding,
       optimizedVideoUrl: "https://assets.autonoma.app/test-generation/demo/optimized.mp4",
     },
-    meta: analysisVerdictMeta(baseFinding.category),
     backLink,
   },
 };
@@ -78,7 +76,6 @@ export const WithOptimizedToggle: Story = {
 export const OriginalOnly: Story = {
   args: {
     finding: baseFinding,
-    meta: analysisVerdictMeta(baseFinding.category),
     backLink,
   },
 };
@@ -115,7 +112,6 @@ export const PlanMismatch: Story = {
       plan: "Setup\n1. Open the storefront.\n\nSteps\n1. click the cart icon\n2. assert the badge reads “3 items”",
       videoUrl: "https://assets.autonoma.app/test-generation/demo/video.webm",
     },
-    meta: analysisVerdictMeta("plan_mismatch"),
     backLink,
   },
 };
@@ -154,7 +150,6 @@ export const InvalidTest: Story = {
       plan: 'Setup\n1. Open the app.\n\nSteps\n1. click the "Reports" tab\n2. click "Download PDF"\n3. assert a PDF downloads',
       videoUrl: "https://assets.autonoma.app/test-generation/demo/video.webm",
     },
-    meta: analysisVerdictMeta("invalid_test"),
     backLink,
   },
 };

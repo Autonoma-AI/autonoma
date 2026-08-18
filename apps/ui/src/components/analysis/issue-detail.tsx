@@ -7,7 +7,7 @@ import {
   analysisIssueSeverityMeta,
   analysisIssueStatusMeta,
 } from "components/analysis/issue-meta";
-import { analysisVerdictMeta } from "components/analysis/verdict-meta";
+import { VerdictBadge } from "components/analysis/verdict-badge";
 import { ScreenshotLightbox } from "components/screenshot-lightbox";
 import { ReasoningMarkdown } from "components/snapshot/reasoning-block";
 import { formatRelativeTime } from "lib/format";
@@ -149,12 +149,9 @@ export function AnalysisIssueDetail({ issue, prNumber }: { issue: AnalysisIssueD
 }
 
 function FindingInstanceRow({ instance, prNumber }: { instance: AnalysisIssueFindingInstance; prNumber?: number }) {
-  const meta = analysisVerdictMeta(instance.category);
   const body = (
     <>
-      <Badge variant={meta.variant} className="shrink-0 font-mono uppercase">
-        {meta.label}
-      </Badge>
+      <VerdictBadge verdict={instance.category} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm text-text-primary">{instance.headline}</p>
         <p className="truncate font-mono text-2xs text-text-secondary">
