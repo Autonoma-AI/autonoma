@@ -5,9 +5,18 @@ import { ReasoningMarkdown } from "components/snapshot/reasoning-block";
 
 /**
  * The "Impact analysis" stage: the reasoning narrative, the selection summary, and the selected tests with their
- * per-test selection reason.
+ * per-test selection reason. While selection is still `pending`, the count line is suppressed - a `0 targets`
+ * reading before the choice is made would be a lie.
  */
-export function AnalysisImpactStage({ run, reasoning }: { run: AnalysisRunView; reasoning?: string }) {
+export function AnalysisImpactStage({
+  run,
+  reasoning,
+  selectionPending,
+}: {
+  run: AnalysisRunView;
+  reasoning?: string;
+  selectionPending?: boolean;
+}) {
   const { targetCount, affectedCount, proposedCount } = run.selection;
 
   return (
@@ -23,11 +32,14 @@ export function AnalysisImpactStage({ run, reasoning }: { run: AnalysisRunView; 
 
       <section className="flex flex-col gap-3">
         <h3 className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-secondary">Selection</h3>
-        <p className="font-mono text-2xs text-text-secondary">
-          {targetCount} {targetCount === 1 ? "target" : "targets"} · {affectedCount} affected · {proposedCount} proposed
-        </p>
+        {!selectionPending && (
+          <p className="font-mono text-2xs text-text-secondary">
+            {targetCount} {targetCount === 1 ? "target" : "targets"} · {affectedCount} affected · {proposedCount}{" "}
+            proposed
+          </p>
+        )}
         {run.findings.length === 0 ? (
-          <EmptySelectionNote />
+          <EmptySelectionNote pending={selectionPending} />
         ) : (
           <ul className="flex flex-col gap-2">
             {run.findings.map((finding) => (

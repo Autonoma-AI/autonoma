@@ -21,6 +21,7 @@ import { DebugPanel } from "components/debug/debug-panel";
 import { StepOutputDisplay } from "components/debug/step-output-display";
 import { DetailRow } from "components/detail-row";
 import { SentryLogsLink, TemporalLink } from "components/observability-links";
+import { PlanMarkdown } from "components/plan-markdown";
 import { type PullRequestRef, PullRequestDetailRows } from "components/pull-request-detail-rows";
 import { NavigableLightbox, type NavigableStep, ScreenshotLightbox } from "components/screenshot-lightbox";
 import { SystemFailurePanel, isSystemFailure } from "components/system-failure-panel";
@@ -29,7 +30,6 @@ import { formatDate } from "lib/format";
 import { toGenerationBadgeVariant, toGenerationStatusLabel } from "lib/generation-status";
 import { ensureGenerationDetailData, useGenerationDetail } from "lib/query/generations.queries";
 import { useState } from "react";
-import Markdown from "react-markdown";
 import { AppLink } from "../../../-app-link";
 import { useCurrentApplication } from "../../../-use-current-application";
 
@@ -488,46 +488,7 @@ function PlanPanel({ content }: { content: string }) {
       </div>
       <ScrollArea className="flex-1 bg-surface-raised">
         <div className="p-5">
-          <article className="prose prose-sm prose-invert max-w-none">
-            <Markdown
-              components={{
-                h1: ({ children }) => (
-                  <h1 className="mb-3 border-b border-border-dim pb-2 text-base font-semibold text-text-primary">
-                    {children}
-                  </h1>
-                ),
-                h2: ({ children }) => <h2 className="mb-2 mt-5 text-sm font-semibold text-text-primary">{children}</h2>,
-                h3: ({ children }) => <h3 className="mb-1.5 mt-4 text-sm font-medium text-text-primary">{children}</h3>,
-                p: ({ children }) => <p className="mb-3 text-sm leading-relaxed text-text-primary">{children}</p>,
-                strong: ({ children }) => <strong className="font-semibold text-text-primary">{children}</strong>,
-                code: ({ children }) => (
-                  <code className="rounded bg-surface-base px-1.5 py-0.5 font-mono text-xs text-text-primary">
-                    {children}
-                  </code>
-                ),
-                ul: ({ children }) => (
-                  <ul className="mb-3 list-inside list-disc space-y-1 text-sm text-text-primary">{children}</ul>
-                ),
-                ol: ({ children }) => (
-                  <ol className="mb-3 list-inside list-decimal space-y-1 text-sm text-text-primary">{children}</ol>
-                ),
-                li: ({ children }) => <li className="text-sm text-text-primary">{children}</li>,
-                a: ({ href, children }) => (
-                  <a
-                    href={href}
-                    className="text-primary-ink underline underline-offset-2 hover:text-primary-ink/80"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {children}
-                  </a>
-                ),
-                hr: () => <hr className="my-4 border-border-dim" />,
-              }}
-            >
-              {content}
-            </Markdown>
-          </article>
+          <PlanMarkdown content={content} />
         </div>
       </ScrollArea>
     </div>

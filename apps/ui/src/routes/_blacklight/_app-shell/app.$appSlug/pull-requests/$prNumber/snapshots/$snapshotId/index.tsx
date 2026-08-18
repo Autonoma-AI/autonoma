@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { STAGE_ROUTES, deriveAnalysisStage } from "components/analysis/analysis-stage-tabs";
-import { ensureAnalysisReportData, ensureAnalysisRunData } from "lib/query/branches.queries";
+import { isSelectionSettled } from "components/analysis/stage-empty-states";
+import { ensureAnalysisJobData, ensureAnalysisReportData, ensureAnalysisRunData } from "lib/query/branches.queries";
 
 /**
  * The bare snapshot URL lands on whatever stage the run is at - once, at load. Navigation never moves again on
@@ -10,11 +11,12 @@ export const Route = createFileRoute(
   "/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/",
 )({
   loader: async ({ context, params }) => {
-    const [run, report] = await Promise.all([
+    const [run, report, job] = await Promise.all([
       ensureAnalysisRunData(context.queryClient, params.snapshotId),
       ensureAnalysisReportData(context.queryClient, params.snapshotId),
+      ensureAnalysisJobData(context.queryClient, params.snapshotId),
     ]);
-    const stage = deriveAnalysisStage(run, report != null);
+    const stage = deriveAnalysisStage(run, report != null, isSelectionSettled(job));
     throw redirect({ to: STAGE_ROUTES[stage], params, replace: true });
   },
 });

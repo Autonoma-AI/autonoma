@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
+import { userEvent, within } from "storybook/test";
 import { withRunSignals } from "./analysis-run-signals";
 
 /** The analysis report as the snapshot page's tRPC output types it - what the fixtures below are checked against. */
@@ -331,8 +332,39 @@ const findingDetailData: AnalysisFindingDetailFixture = {
       },
     ],
   },
-  plan: "1. Sign in as the seeded customer.\n2. Add the featured item to the cart.\n3. Check out with the saved card.\n4. Assert the confirmation page shows the order number.",
+  // Plans are authored in markdown - the plan tab renders it, and only the diff view keeps the monospace source.
+  plan: [
+    "**Setup**: A signed-in customer with a saved Visa is on the cart page (`/cart`).",
+    "",
+    "**Intent**: Verify the customer can place an order and reach a paid confirmation.",
+    "",
+    "**Steps**",
+    "",
+    "1. Add the **Trailblazer backpack** to the cart.",
+    "2. Click **Proceed to checkout**.",
+    "3. Select the saved Visa ending in `4242`.",
+    "4. Click **Place order**.",
+    "5. Assert the confirmation page shows the order number and a **Paid** badge.",
+  ].join("\n"),
   previousPlan: undefined,
+};
+
+// A finding whose plan this checkpoint rewrote, for the plan tab's diff toggle: the current plan reads as markdown,
+// "Changed this checkpoint" flips to the monospace diff against the pre-PR plan.
+const findingDetailWithPlanDiff: AnalysisFindingDetailFixture = {
+  ...findingDetailData,
+  previousPlan: [
+    "**Setup**: A signed-in customer with a saved Visa is on the cart page (`/cart`).",
+    "",
+    "**Intent**: Verify the customer can place an order and reach a paid confirmation.",
+    "",
+    "**Steps**",
+    "",
+    "1. Add the **Trailblazer backpack** to the cart.",
+    "2. Click **Proceed to checkout**.",
+    "3. Click **Place order**.",
+    "4. Assert the confirmation page shows the order number.",
+  ].join("\n"),
 };
 
 /**
@@ -745,6 +777,32 @@ export const DrawerSteps: Story = {
   },
 };
 
+/** The drawer's plan tab: the plan rendered as markdown at rest (monospace source is reserved for the diff). */
+export const DrawerPlan: Story = {
+  args: {
+    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/running/finding/checkout-place-order?tab=plan`,
+  },
+};
+
+/** The plan tab for a test this checkpoint rewrote, toggled to the diff - the one place the plan stays monospace. */
+export const DrawerPlanDiff: Story = {
+  args: {
+    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/running/finding/checkout-place-order?tab=plan`,
+  },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...pageFixtures,
+        branches: { ...pageFixtures.branches, analysisFindingDetail: findingDetailWithPlanDiff },
+      }),
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: "Changed this checkpoint" }));
+  },
+};
+
 /** The stub drawer for a test this checkpoint removed without ever selecting it: identity + the deleted plan. */
 export const RemovedStub: Story = {
   args: {
@@ -844,6 +902,52 @@ export const Running: Story = {
   parameters: {
     msw: { handlers: appShellHandlers(jobStateFixtures({ status: "running", startedAt: RUN_AT })) },
   },
+};
+
+// Impact analysis still selecting: a running job with no reasoning yet and an empty run. The impact and running
+// stages must NOT claim "selected none" here - findings are simply not born until selection completes.
+const selectionPendingFixtures: TrpcFixtures = {
+  ...jobStateFixtures({ status: "running", startedAt: RUN_AT }),
+  branches: {
+    ...jobStateFixtures({ status: "running", startedAt: RUN_AT }).branches,
+    analysisJob: { status: "running", startedAt: RUN_AT },
+    analysisRun: { findings: [], removedTests: [], selection: { targetCount: 0, affectedCount: 0, proposedCount: 0 } },
+  },
+};
+
+/** Impact analysis mid-selection: the stage shows a pending note, never a premature "selected none". */
+export const ImpactSelecting: Story = {
+  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/impact` },
+  parameters: { msw: { handlers: appShellHandlers(selectionPendingFixtures) } },
+};
+
+/** The running stage while selection is still pending: the same pending note, not an empty "no tests" list. */
+export const RunningSelecting: Story = {
+  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/running` },
+  parameters: { msw: { handlers: appShellHandlers(selectionPendingFixtures) } },
+};
+
+// Impact concluded but selected zero tests, and the job is still running (a non-functional chore diff). Impact
+// analysis is DONE - so its indicator must read complete, never a spinner, even with no findings.
+const zeroTestSettledFixtures: TrpcFixtures = {
+  ...jobStateFixtures({ status: "running", startedAt: RUN_AT }),
+  branches: {
+    ...jobStateFixtures({ status: "running", startedAt: RUN_AT }).branches,
+    analysisJob: {
+      status: "running",
+      startedAt: RUN_AT,
+      impactReasoning:
+        "The diff is purely non-functional - a trailing newline and vendored `.d.ts` reformatting - so no test " +
+        "is put at risk and none was selected.",
+    },
+    analysisRun: { findings: [], removedTests: [], selection: { targetCount: 0, affectedCount: 0, proposedCount: 0 } },
+  },
+};
+
+/** A concluded zero-test selection on a still-running job: impact reads complete (no spinner), not mid-selection. */
+export const ImpactZeroTests: Story = {
+  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/impact` },
+  parameters: { msw: { handlers: appShellHandlers(zeroTestSettledFixtures) } },
 };
 
 /** A run that died before producing a report. The page shows the failure and its reason where the report would be. */

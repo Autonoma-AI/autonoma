@@ -21,15 +21,18 @@ export function AnalysisRunGroups({
   run,
   prNumber,
   snapshotId,
+  selectionPending,
 }: {
   run: AnalysisRunView;
   prNumber: number;
   snapshotId: string;
+  /** Impact analysis has not finished selecting - a "no findings yet" state, not "no tests". */
+  selectionPending?: boolean;
 }) {
   const groups = groupRun(run);
 
   if (groups.length === 0) {
-    return <EmptySelectionNote />;
+    return <EmptySelectionNote pending={selectionPending} />;
   }
 
   return (

@@ -1,6 +1,6 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { AnalysisRunGroups } from "components/analysis/analysis-run-groups";
-import { NotAnalyzedNote } from "components/analysis/stage-empty-states";
+import { NotAnalyzedNote, isSelectionPending } from "components/analysis/stage-empty-states";
 import { useAnalysisJob, useAnalysisRun } from "lib/query/branches.queries";
 
 /** The running stage: the verdict-grouped test list, with the finding drawer as a child route overlaying it. */
@@ -20,7 +20,12 @@ function RunningStagePage() {
   }
   return (
     <>
-      <AnalysisRunGroups run={run} prNumber={prNumber} snapshotId={snapshotId} />
+      <AnalysisRunGroups
+        run={run}
+        prNumber={prNumber}
+        snapshotId={snapshotId}
+        selectionPending={isSelectionPending(job)}
+      />
       <Outlet />
     </>
   );

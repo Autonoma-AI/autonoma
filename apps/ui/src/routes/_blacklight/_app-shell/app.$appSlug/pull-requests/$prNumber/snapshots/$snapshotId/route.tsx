@@ -3,6 +3,7 @@ import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { Outlet, createFileRoute, notFound, useMatchRoute } from "@tanstack/react-router";
 import { AnalysisJobStatus } from "components/analysis/analysis-job-status";
 import { AnalysisStageTabs, deriveAnalysisStage } from "components/analysis/analysis-stage-tabs";
+import { isSelectionSettled } from "components/analysis/stage-empty-states";
 import { SnapshotReportHeader } from "components/snapshot/snapshot-report-header";
 import {
   ensureAnalysisJobData,
@@ -78,7 +79,7 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
           <AnalysisStageTabs
             prNumber={prNumber}
             snapshotId={snapshotId}
-            currentStage={deriveAnalysisStage(run, analysisReport != null)}
+            currentStage={deriveAnalysisStage(run, analysisReport != null, isSelectionSettled(job))}
             jobRunning={job?.status === "running"}
           />
           <Outlet />

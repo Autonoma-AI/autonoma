@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AnalysisImpactStage } from "components/analysis/analysis-impact-stage";
-import { NotAnalyzedNote } from "components/analysis/stage-empty-states";
+import { NotAnalyzedNote, isSelectionPending } from "components/analysis/stage-empty-states";
 import { useAnalysisJob, useAnalysisRun } from "lib/query/branches.queries";
 
 export const Route = createFileRoute(
@@ -17,5 +17,5 @@ function ImpactStagePage() {
   if (run == null) {
     return <NotAnalyzedNote />;
   }
-  return <AnalysisImpactStage run={run} reasoning={job?.impactReasoning} />;
+  return <AnalysisImpactStage run={run} reasoning={job?.impactReasoning} selectionPending={isSelectionPending(job)} />;
 }

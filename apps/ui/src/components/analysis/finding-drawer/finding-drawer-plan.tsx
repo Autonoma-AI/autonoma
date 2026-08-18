@@ -1,9 +1,11 @@
 import { Diff, cn } from "@autonoma/blacklight";
+import { PlanMarkdown } from "components/plan-markdown";
 import { useState } from "react";
 
 /**
- * The drawer's plan tab: the plan the run was judged against, with a toggle to the checkpoint's change to it
- * when this PR rewrote the plan. A removed test passes only `previousPlan` content through `plan`.
+ * The drawer's plan tab: the plan the run was judged against, rendered as markdown, with a toggle to the
+ * checkpoint's change to it when this PR rewrote the plan. The diff view is the one place the plan stays
+ * monospace - its line-for-line source is the point. A removed test passes only `previousPlan` through `plan`.
  */
 export function FindingDrawerPlan({ plan, previousPlan }: { plan: string; previousPlan?: string }) {
   const [showDiff, setShowDiff] = useState(false);
@@ -22,10 +24,10 @@ export function FindingDrawerPlan({ plan, previousPlan }: { plan: string; previo
       )}
       {showDiff && previousPlan != null ? (
         <Diff oldSource={previousPlan} newSource={plan} showLineNumbers={false} />
+      ) : plan.trim() !== "" ? (
+        <PlanMarkdown content={plan} />
       ) : (
-        <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-surface-void p-4 font-mono text-2xs text-text-secondary">
-          {plan.trim() !== "" ? plan : "This test has no plan at this checkpoint."}
-        </pre>
+        <p className="text-sm text-text-secondary">This test has no plan at this checkpoint.</p>
       )}
     </div>
   );

@@ -21,11 +21,21 @@ export const STAGE_ROUTES = {
 
 type StageIndicatorState = "complete" | "active" | "pending";
 
-/** The stage the run itself is at - what the bare snapshot URL redirects to, and what the indicators mark. */
-export function deriveAnalysisStage(run: AnalysisRunView | null, hasReport: boolean): AnalysisStage {
+/**
+ * The furthest stage the run has reached - what the bare snapshot URL redirects to, and what the indicators
+ * mark complete/active. `selectionSettled` is what advances past impact: a run that concluded with zero tests
+ * has finished impact analysis just as much as one that selected many, so impact must not keep spinning on it.
+ */
+export function deriveAnalysisStage(
+  run: AnalysisRunView | null,
+  hasReport: boolean,
+  selectionSettled: boolean,
+): AnalysisStage {
   if (hasReport) return "report";
+  // Findings are born a beat before the reasoning is recorded, so their presence advances past impact even if
+  // `selectionSettled` has not flipped yet.
   const hasRows = run != null && (run.findings.length > 0 || run.removedTests.length > 0);
-  return hasRows ? "running" : "impact";
+  return hasRows || selectionSettled ? "running" : "impact";
 }
 
 /**

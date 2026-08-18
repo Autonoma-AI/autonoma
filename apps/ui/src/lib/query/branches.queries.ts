@@ -58,7 +58,7 @@ export function useAnalysisJob(snapshotId: string) {
 }
 
 export async function ensureAnalysisJobData(queryClient: QueryClient, snapshotId: string) {
-    await ensureAPIQueryData(queryClient, trpc.branches.analysisJob.queryOptions({ snapshotId }));
+    return await ensureAPIQueryData(queryClient, trpc.branches.analysisJob.queryOptions({ snapshotId }));
 }
 
 /**
