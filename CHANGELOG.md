@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.260818.1](https://github.com/Autonoma-AI/agent/compare/v1.260814.4...v1.260818.1) (2026-08-18)
+
+
+### Features
+
+* **api:** live analysis run read for the staged checkpoint view ([#2549](https://github.com/Autonoma-AI/agent/issues/2549)) ([29e63e9](https://github.com/Autonoma-AI/agent/commit/29e63e9488920ba3971794b206c25dbc599b9fcd))
+* **api:** per-finding detail read and widened live run view ([#2615](https://github.com/Autonoma-AI/agent/issues/2615)) ([24e0585](https://github.com/Autonoma-AI/agent/commit/24e058514f24cacb526160b97865471bb84563a7))
+* **buildkit:** replace Verdaccio with an nginx npm registry cache ([#2597](https://github.com/Autonoma-AI/agent/issues/2597)) ([2bb2346](https://github.com/Autonoma-AI/agent/commit/2bb2346dcef97a2a03d0ae2b9cdefc8d62136d77))
+* **db:** give an app a durable identity as PreviewkitApp ([#2606](https://github.com/Autonoma-AI/agent/issues/2606)) ([85050c8](https://github.com/Autonoma-AI/agent/commit/85050c8cd92f1c5b8f8e2d2f8753fc947057a118))
+* **grafana:** sync dashboards from git on push to main ([#2605](https://github.com/Autonoma-AI/agent/issues/2605)) ([a463916](https://github.com/Autonoma-AI/agent/commit/a463916d09c937c5464cb0f7d2ad31d90e7bbae4))
+* only analyze PRs that target the main branch ([#2442](https://github.com/Autonoma-AI/agent/issues/2442)) ([d514fe8](https://github.com/Autonoma-AI/agent/commit/d514fe83f178b7049ea977931a788970029052ee))
+* **ui:** settled report and in-progress pointer on the PR page ([#2556](https://github.com/Autonoma-AI/agent/issues/2556)) ([1de16ae](https://github.com/Autonoma-AI/agent/commit/1de16ae557da67f056a928c4bea2206d886c4fcd))
+
+
+### Bug Fixes
+
+* **api:** re-resolve the SDK endpoint when sdk_implemented moves ([#2592](https://github.com/Autonoma-AI/agent/issues/2592)) ([b179884](https://github.com/Autonoma-AI/agent/commit/b179884fc80ea8fc408e54bc12a74107a4188c2a))
+* **api:** refuse a base-preview deploy that would cancel one in flight ([#2612](https://github.com/Autonoma-AI/agent/issues/2612)) ([666f243](https://github.com/Autonoma-AI/agent/commit/666f2431e5330c25d128764b72163c80e55e11c9))
+* **previewkit:** avoid namespace collisions with a hashed name format ([#2595](https://github.com/Autonoma-AI/agent/issues/2595)) ([4726a53](https://github.com/Autonoma-AI/agent/commit/4726a53355ba3471d991eee4e5c16b5a944bcbfd))
+* **scenario:** stop a deleted factory silently killing every dogfood run ([#2576](https://github.com/Autonoma-AI/agent/issues/2576)) ([f239523](https://github.com/Autonoma-AI/agent/commit/f2395238b874d9be24f20f4cee58392530e566bb))
+
 ## [1.260814.4](https://github.com/Autonoma-AI/agent/compare/v1.260814.3...v1.260814.4) (2026-08-14)
 
 
