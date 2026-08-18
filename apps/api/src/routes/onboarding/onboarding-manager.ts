@@ -7,7 +7,12 @@ import {
 } from "@autonoma/db";
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
-import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
+import {
+    type EncryptionHelper,
+    type ResolvedSdkEndpoint,
+    resolveSdkEndpointForApplication,
+    type ScenarioManager,
+} from "@autonoma/scenario";
 import { SnapshotNotFoundError, SnapshotNotOpenError, TestSuiteStore } from "@autonoma/test-suite";
 import {
     buildSdkUrl,
@@ -419,6 +424,17 @@ export class OnboardingManager {
         this.logger.info("Loading onboarding PreviewKit config", { applicationId, organizationId });
         await this.ensureApplicationHasRepository(applicationId, organizationId);
         return this.previewkitConfig.getConfig(applicationId, organizationId);
+    }
+
+    /**
+     * The SDK endpoint the application's base preview resolves to right now, so a caller (the
+     * `get_config` MCP tool) can see WHERE a provision will land - and catch a stored endpoint left
+     * on the wrong app after `sdk_implemented` moved - before a run fails on it.
+     */
+    async resolveSdkEndpoint(applicationId: string, organizationId: string): Promise<ResolvedSdkEndpoint> {
+        this.logger.info("Resolving base-preview SDK endpoint", { applicationId, organizationId });
+        await this.assertApplicationInOrg(applicationId, organizationId);
+        return resolveSdkEndpointForApplication(this.db, applicationId);
     }
 
     async savePreviewkitConfig(

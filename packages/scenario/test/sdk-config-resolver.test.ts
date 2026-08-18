@@ -17,25 +17,49 @@ const STORED_SDK_URL = "https://api.preview.autonoma.app/api/autonoma";
 async function seedConfig(
     harness: ScenarioTestHarness,
     applicationId: string,
-    app: { name: string; sdk_implemented?: boolean; sdk_path?: string },
+    apps: Array<{ name: string; primary?: boolean; sdk_implemented?: boolean; sdk_path?: string }>,
 ): Promise<void> {
     const config = trustedPreviewConfigSchema.parse({
         version: 2,
-        apps: [
-            {
-                name: app.name,
-                repository: "acme/web",
-                port: 3000,
-                primary: true,
-                sdk_implemented: app.sdk_implemented ?? false,
-                sdk_path: app.sdk_path,
-            },
-        ],
+        apps: apps.map((app, index) => ({
+            name: app.name,
+            repository: "acme/web",
+            port: 3000 + index,
+            primary: app.primary ?? index === 0,
+            sdk_implemented: app.sdk_implemented ?? false,
+            sdk_path: app.sdk_path,
+        })),
         services: [],
     });
 
     await harness.db.previewkitConfig.create({
         data: { applicationId, ...previewkitConfigCreateChildren(previewkitConfigRowValues(config)) },
+    });
+}
+
+/** Link a PreviewKit environment to the deployment's branch, carrying the per-app preview URLs the host resolves against. */
+async function linkPreviewEnvironment(
+    harness: ScenarioTestHarness,
+    orgId: string,
+    deploymentId: string,
+    urls: Record<string, string>,
+): Promise<void> {
+    const deployment = await harness.db.branchDeployment.findUniqueOrThrow({
+        where: { id: deploymentId },
+        select: { branchId: true },
+    });
+    const unique = `${deployment.branchId}`;
+    await harness.db.previewkitEnvironment.create({
+        data: {
+            namespace: `preview-${unique}`,
+            repoFullName: "acme/web",
+            prNumber: 0,
+            headSha: "deadbeef",
+            headRef: "main",
+            organizationId: orgId,
+            branchId: deployment.branchId,
+            urls,
+        },
     });
 }
 
@@ -73,7 +97,7 @@ integrationTestSuite({
                 webhookUrl: STORED_SDK_URL,
                 signingSecret: SIGNING_SECRET,
             });
-            await seedConfig(harness, appId, { name: "api", sdk_implemented: true, sdk_path: "/autonoma" });
+            await seedConfig(harness, appId, [{ name: "api", sdk_implemented: true, sdk_path: "/autonoma" }]);
 
             const config = await resolveSdkConfig({
                 applicationId: appId,
@@ -96,7 +120,7 @@ integrationTestSuite({
                 webhookUrl: registered,
                 signingSecret: SIGNING_SECRET,
             });
-            await seedConfig(harness, appId, { name: "web", sdk_implemented: true });
+            await seedConfig(harness, appId, [{ name: "web", sdk_implemented: true }]);
 
             const config = await resolveSdkConfig({
                 applicationId: appId,
@@ -116,7 +140,7 @@ integrationTestSuite({
                 webhookUrl: STORED_SDK_URL,
                 signingSecret: SIGNING_SECRET,
             });
-            await seedConfig(harness, appId, { name: "web", sdk_path: "/seed" });
+            await seedConfig(harness, appId, [{ name: "web", sdk_path: "/seed" }]);
 
             const config = await resolveSdkConfig({
                 applicationId: appId,
@@ -128,12 +152,41 @@ integrationTestSuite({
             expect(config.sdkUrl).toBe("https://api.preview.autonoma.app/seed");
         });
 
+        test("re-points the host when sdk_implemented moved to a different app than the stored endpoint's", async ({
+            harness,
+            seedResult: { orgId },
+        }) => {
+            // The exact production misroute: the endpoint was first stored against the dashboard (the
+            // primary-fallback registration), then the config moved `sdk_implemented` to the server
+            // that actually serves the handler. The resolved host must follow the flag to the server.
+            const dashboard = "https://dashboard.preview.autonoma.app";
+            const server = "https://server.preview.autonoma.app";
+            const { appId, deploymentId } = await harness.createApp(orgId, {
+                webhookUrl: `${dashboard}/api/autonoma`,
+                signingSecret: SIGNING_SECRET,
+            });
+            await seedConfig(harness, appId, [
+                { name: "dashboard", primary: true },
+                { name: "server", sdk_implemented: true },
+            ]);
+            await linkPreviewEnvironment(harness, orgId, deploymentId, { dashboard, server });
+
+            const config = await resolveSdkConfig({
+                applicationId: appId,
+                deploymentId,
+                db: harness.db,
+                encryption: harness.encryption,
+            });
+
+            expect(config.sdkUrl).toBe(`${server}/api/autonoma`);
+        });
+
         test("takes an explicit override verbatim", async ({ harness, seedResult: { orgId } }) => {
             const { appId, deploymentId } = await harness.createApp(orgId, {
                 webhookUrl: STORED_SDK_URL,
                 signingSecret: SIGNING_SECRET,
             });
-            await seedConfig(harness, appId, { name: "api", sdk_implemented: true, sdk_path: "/autonoma" });
+            await seedConfig(harness, appId, [{ name: "api", sdk_implemented: true, sdk_path: "/autonoma" }]);
 
             const config = await resolveSdkConfig({
                 applicationId: appId,

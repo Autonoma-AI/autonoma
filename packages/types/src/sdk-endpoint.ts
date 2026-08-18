@@ -15,6 +15,9 @@ import { parseUrl } from "./parse-url";
  * - {@link applySdkPath} re-points an endpoint that ALREADY exists at a declared
  *   path. It is a no-op when nothing is declared, which is what keeps a URL a
  *   customer registered by hand from being rewritten to the convention.
+ * - {@link reResolveSdkEndpoint} re-points a stored endpoint at the app the
+ *   config now declares as the SDK host when that is a DIFFERENT app than it was
+ *   stored against, and otherwise degrades to {@link applySdkPath}.
  */
 
 /**
@@ -57,6 +60,45 @@ export function applySdkPath(sdkUrl: string, path: string | null | undefined): s
     // token a hand-registered endpoint needs to authenticate - and dropping it
     // would turn a working endpoint into a 401.
     return `${url.origin}${path}${url.search}`;
+}
+
+/**
+ * Re-resolve a stored SDK endpoint against the app the config now declares as the SDK host.
+ *
+ * `applySdkPath` keeps the stored origin and only swaps the path - right while the same app hosts
+ * the handler, but wrong for an endpoint first stored via the primary-app fallback: when
+ * `sdk_implemented` moves, the stored origin is now an app with no handler and every provision 404s.
+ *
+ * `declaredSdkAppUrl` is the URL of the app that EXPLICITLY set `sdk_implemented` (undefined when
+ * none does); only an explicit declaration can overrule a stored endpoint, never a primary-app guess.
+ * The owning app is judged by ORIGIN - the endpoint carries no other trace of which app produced it.
+ * Same origin preserves the stored path (a hand-registered path survives); a differing origin
+ * re-points the host wholesale, taking the declared path (else the convention).
+ */
+export function reResolveSdkEndpoint({
+    storedEndpoint,
+    declaredSdkAppUrl,
+    declaredPath,
+}: {
+    storedEndpoint: string | undefined;
+    declaredSdkAppUrl: string | undefined;
+    declaredPath: string | null | undefined;
+}): string | undefined {
+    if (storedEndpoint == null || storedEndpoint === "") return undefined;
+
+    // No explicit SDK host declared: the stored endpoint stands, path corrected. `applySdkPath` behavior.
+    if (declaredSdkAppUrl == null || declaredSdkAppUrl === "") {
+        return applySdkPath(storedEndpoint, declaredPath);
+    }
+
+    // Declared host unparseable: keep the stored endpoint rather than compose a broken URL.
+    const declaredOrigin = parseUrl(declaredSdkAppUrl)?.origin;
+    if (declaredOrigin == null) return applySdkPath(storedEndpoint, declaredPath);
+
+    // Same app still owns it: preserve the stored path. Owning app changed: re-point the whole host.
+    const storedOrigin = parseUrl(storedEndpoint)?.origin;
+    if (storedOrigin === declaredOrigin) return applySdkPath(storedEndpoint, declaredPath);
+    return buildSdkUrl(declaredOrigin, declaredPath);
 }
 
 /**

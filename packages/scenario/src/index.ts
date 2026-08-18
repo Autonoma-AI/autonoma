@@ -21,7 +21,14 @@ export type {
 } from "./apply-scenario-recipe-update";
 export { resolveRecipePayload } from "@autonoma/types/scenario-recipe-resolver";
 export { findRecipeProblems } from "./find-recipe-problems";
-export { resolveConfiguredSdkPath, resolveSdkConfig, type SdkConfig } from "./sdk-config-resolver";
+export {
+    resolveConfiguredSdkPath,
+    resolveConfiguredSdkRoles,
+    resolveSdkConfig,
+    resolveSdkEndpointForApplication,
+    type ResolvedSdkEndpoint,
+    type SdkConfig,
+} from "./sdk-config-resolver";
 export { recordBranchDeployment, type RecordBranchDeploymentParams } from "./record-branch-deployment";
 export { autonomaHostsPreviews } from "./autonoma-hosts-previews";
 export {

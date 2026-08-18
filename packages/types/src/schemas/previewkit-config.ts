@@ -892,9 +892,34 @@ const sdkPathDocumentSchema = z.object({ apps: z.array(appRoleSchema) });
  * loudly, by the full schema at deploy time.
  */
 export function sdkPathFromDocument(document: unknown): string | undefined {
+    return sdkRolesFromDocument(document).path;
+}
+
+/** The SDK-host roles a stored config document declares: which app EXPLICITLY hosts the handler, and its path. */
+export interface SdkDocumentRoles {
+    /**
+     * The app that EXPLICITLY set `sdk_implemented`, or undefined when none did - a primary-app
+     * fallback is deliberately NOT folded in, so a caller can tell a declaration from a guess and
+     * only overrule a stored endpoint's host on the former (see `reResolveSdkEndpoint`).
+     */
+    declaredAppName?: string;
+    /** The path read off the resolved SDK app, or undefined when the document declares none (leave a stored path alone). */
+    path?: string;
+}
+
+/**
+ * {@link sdkPathFromDocument}'s superset: the explicitly-declared SDK host app name AND the declared
+ * path, from one lenient parse of a raw stored document. The name is what tells a host re-resolution
+ * that the SDK owner moved apps; the path is unchanged from {@link sdkPathFromDocument}. An
+ * unreadable document yields an empty roles object - "no opinion", the safe direction.
+ */
+export function sdkRolesFromDocument(document: unknown): SdkDocumentRoles {
     const parsed = sdkPathDocumentSchema.safeParse(document);
-    if (!parsed.success) return undefined;
-    return declaredSdkPath(parsed.data.apps);
+    if (!parsed.success) return {};
+    return {
+        declaredAppName: declaredSdkAppName(parsed.data.apps),
+        path: declaredSdkPath(parsed.data.apps),
+    };
 }
 
 /** A `{{target.property}}` connection token parsed into its parts. */

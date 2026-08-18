@@ -1,4 +1,5 @@
 import { declaredSdkAppName, declaredSdkPath, resolvePrimaryAppName } from "../schemas/previewkit-config";
+import { reResolveSdkEndpoint } from "../sdk-endpoint";
 import type { PreviewkitManifest } from "./previewkit-manifest";
 
 /**
@@ -38,4 +39,25 @@ export function resolveSdkAppUrl(manifest: PreviewkitManifest, urls: Record<stri
  */
 export function resolveSdkPath(manifest: PreviewkitManifest): string | undefined {
     return declaredSdkPath(manifest.apps ?? []);
+}
+
+/**
+ * A preview's already-stored SDK endpoint, re-resolved against this environment's config and app URLs.
+ *
+ * Handles the sticky case: a stored endpoint first registered via the primary-app fallback keeps that
+ * host even after `sdk_implemented` moves. {@link reResolveSdkEndpoint} overrules the stored host only
+ * when an app EXPLICITLY declares itself the SDK host and its origin differs; otherwise the endpoint is
+ * left alone (path corrected), preserving a hand-registered origin/path. Undefined when there is no
+ * stored endpoint to re-resolve.
+ */
+export function resolveSdkEndpointUrl(
+    manifest: PreviewkitManifest,
+    urls: Record<string, string>,
+    storedEndpoint: string | undefined,
+): string | undefined {
+    return reResolveSdkEndpoint({
+        storedEndpoint,
+        declaredSdkAppUrl: resolveDeclaredSdkAppUrl(manifest, urls),
+        declaredPath: resolveSdkPath(manifest),
+    });
 }

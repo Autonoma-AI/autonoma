@@ -1,6 +1,13 @@
 import { type PrismaClient, previewkitConfigRowsInclude } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { applySdkPath, documentFromPreviewkitConfigRows, sdkPathFromDocument } from "@autonoma/types";
+import {
+    documentFromPreviewkitConfigRows,
+    parseStringRecord,
+    parseUrl,
+    reResolveSdkEndpoint,
+    type SdkDocumentRoles,
+    sdkRolesFromDocument,
+} from "@autonoma/types";
 import type { EncryptionHelper } from "./encryption";
 
 export interface SdkConfig {
@@ -29,16 +36,23 @@ export async function resolveSdkConfig(params: {
 }): Promise<SdkConfig> {
     const { applicationId, deploymentId, db, encryption, sdkUrlOverride } = params;
 
-    const [application, deployment, configuredSdkPath] = await Promise.all([
+    const [application, deployment, configuredRoles] = await Promise.all([
         db.application.findUnique({
             where: { id: applicationId },
             select: { id: true, signingSecretEnc: true, organizationId: true, disabled: true },
         }),
         db.branchDeployment.findUnique({
             where: { id: deploymentId },
-            select: { id: true, webhookUrl: true, webhookHeaders: true },
+            select: {
+                id: true,
+                webhookUrl: true,
+                webhookHeaders: true,
+                // The preview whose app URLs the SDK host resolves against. Absent for a BYO/external
+                // preview (no PreviewKit environment), which leaves the stored endpoint untouched.
+                branch: { select: { previewkitEnvironment: { select: { urls: true } } } },
+            },
         }),
-        resolveConfiguredSdkPath(db, applicationId),
+        resolveConfiguredSdkRoles(db, applicationId),
     ]);
 
     if (application == null) {
@@ -59,23 +73,35 @@ export async function resolveSdkConfig(params: {
     const customHeaders =
         deployment.webhookHeaders != null ? (deployment.webhookHeaders as Record<string, string>) : undefined;
 
-    // The stored row's origin is authoritative - it is the app that was actually
-    // deployed - but its path was composed by whichever trigger wrote it, all of
-    // which assume the convention. The config is where an app that mounts the
-    // handler elsewhere says so, and it is read HERE rather than at write time so
-    // that fixing a wrong path is a config edit, not a redeploy of every live
-    // environment.
+    // The stored endpoint's origin is the only trace of which app produced it, and one first stored
+    // via the primary-app fallback stays stuck there after `sdk_implemented` moves. So re-resolve
+    // against the config's EXPLICITLY declared SDK host (mapped to this preview's app URLs): a
+    // differing origin re-points the host, everything else only corrects the path. Read here, not at
+    // write time, so fixing a misroute is a config edit rather than a redeploy.
     //
-    // An override is taken verbatim: it replaces the whole endpoint (not just its
-    // host), it is resolved server-side from a dry-run target that already carries
-    // the declared path, and rewriting a caller's explicit URL would leave no way
-    // to aim a provision at an arbitrary endpoint on purpose.
+    // An override is taken verbatim - it already carries the declared host and path, and rewriting it
+    // would leave no way to aim a provision at an arbitrary endpoint on purpose.
+    const envUrls = parseStringRecord(deployment.branch?.previewkitEnvironment?.urls);
+    const declaredSdkAppUrl =
+        configuredRoles.declaredAppName != null ? envUrls[configuredRoles.declaredAppName] : undefined;
     const sdkUrl =
         sdkUrlOverride ??
-        (deployment.webhookUrl != null ? applySdkPath(deployment.webhookUrl, configuredSdkPath) : undefined);
+        reResolveSdkEndpoint({
+            storedEndpoint: deployment.webhookUrl ?? undefined,
+            declaredSdkAppUrl,
+            declaredPath: configuredRoles.path,
+        });
     if (sdkUrl == null) {
         throw new Error(`Deployment ${deploymentId} does not have an SDK URL configured`);
     }
+
+    logHostRepoint({
+        applicationId,
+        deploymentId,
+        storedEndpoint: sdkUrlOverride == null ? (deployment.webhookUrl ?? undefined) : undefined,
+        resolvedUrl: sdkUrl,
+        declaredAppName: configuredRoles.declaredAppName,
+    });
 
     return {
         applicationId: application.id,
@@ -86,29 +112,111 @@ export async function resolveSdkConfig(params: {
 }
 
 /**
- * The `sdk_path` the application's LIVE preview config declares, or undefined when it declares none - which
- * includes every application whose previews Autonoma does not build (no config row at all), leaving their stored
- * endpoint untouched.
+ * Log the moment a stored SDK endpoint's HOST is actually re-pointed, so a run leaves a breadcrumb
+ * ("dashboard -> server") instead of us inferring the correction from it succeeding.
  *
- * Read from `PreviewkitConfig` rather than from an environment's `resolvedConfig`: that column is a photo taken at
- * deploy time, so a path corrected after a preview went up would not reach any reader until it redeployed.
+ * Silent on every non-event (no `storedEndpoint`, an unparseable origin, or the same-host preserve
+ * path). Origins only reach the log - never the full URL's path, never the signing secret.
+ */
+function logHostRepoint(params: {
+    applicationId: string;
+    deploymentId: string;
+    storedEndpoint: string | undefined;
+    resolvedUrl: string;
+    declaredAppName: string | undefined;
+}): void {
+    const { applicationId, deploymentId, storedEndpoint, resolvedUrl, declaredAppName } = params;
+    if (storedEndpoint == null) return;
+
+    const storedOrigin = parseUrl(storedEndpoint)?.origin;
+    const resolvedOrigin = parseUrl(resolvedUrl)?.origin;
+    if (storedOrigin == null || resolvedOrigin == null || storedOrigin === resolvedOrigin) return;
+
+    rootLogger.child({ name: "resolveSdkConfig" }).info("Re-pointed SDK endpoint host to the declared SDK app", {
+        applicationId,
+        extra: { deploymentId, storedOrigin, resolvedOrigin, declaredSdkAppName: declaredAppName },
+    });
+}
+
+/**
+ * The `sdk_path` the application's LIVE preview config declares, or undefined when it declares none.
  *
- * Exported because the same question is asked outside a provision - the onboarding dry-run targets and the manual
- * admin up both compose an endpoint of their own - and the answer has to be identical everywhere, or an `up` and
- * the `down` that follows it can reach different URLs and strand data in the customer's database.
+ * Exported because the dry-run targets and the manual admin up ask the same question, and an `up` and
+ * its `down` must reach the same URL or data is stranded. See {@link resolveConfiguredSdkRoles}.
  */
 export async function resolveConfiguredSdkPath(db: PrismaClient, applicationId: string): Promise<string | undefined> {
-    const logger = rootLogger.child({ name: "resolveConfiguredSdkPath" });
+    return (await resolveConfiguredSdkRoles(db, applicationId)).path;
+}
+
+/**
+ * The SDK-host roles the LIVE preview config declares: the app that EXPLICITLY hosts the handler
+ * (undefined when none does - a primary-app fallback is NOT it, so a host re-resolution can tell a
+ * declaration from a guess) and the path it mounts it at.
+ *
+ * Read from `PreviewkitConfig`, not an environment's `resolvedConfig` (a deploy-time photo), so a
+ * correction reaches readers without a redeploy. No config row yields empty roles, leaving the
+ * stored endpoint untouched.
+ */
+export async function resolveConfiguredSdkRoles(db: PrismaClient, applicationId: string): Promise<SdkDocumentRoles> {
+    const logger = rootLogger.child({ name: "resolveConfiguredSdkRoles" });
 
     const stored = await db.previewkitConfig.findUnique({
         where: { applicationId },
         include: previewkitConfigRowsInclude,
     });
-    if (stored == null) return undefined;
+    if (stored == null) return {};
 
-    const path = sdkPathFromDocument(documentFromPreviewkitConfigRows(stored));
-    if (path != null) {
-        logger.info("Preview config declares an SDK endpoint path", { applicationId, extra: { sdkPath: path } });
+    const roles = sdkRolesFromDocument(documentFromPreviewkitConfigRows(stored));
+    if (roles.declaredAppName != null || roles.path != null) {
+        logger.info("Preview config declares SDK endpoint roles", {
+            applicationId,
+            extra: { sdkAppName: roles.declaredAppName, sdkPath: roles.path },
+        });
     }
-    return path;
+    return roles;
+}
+
+/** The SDK endpoint an application's base preview resolves to right now, alongside the raw stored value it re-resolved. */
+export interface ResolvedSdkEndpoint {
+    /** The URL a provision against the base preview will POST to - host re-resolved to the declared SDK app. */
+    sdkUrl?: string;
+    /** The endpoint stored on the base deployment before re-resolution; a differing host from `sdkUrl` is the misroute. */
+    storedEndpoint?: string;
+    /** The app the live config EXPLICITLY declares as the SDK host, if any. */
+    sdkAppName?: string;
+}
+
+/**
+ * Where a provision against the application's BASE preview will land, using the exact re-resolution
+ * {@link resolveSdkConfig} runs minus the signing secret. `get_config` surfaces this so a host
+ * mismatch is visible up front; the resolved and raw stored URLs are both returned to compare hosts.
+ */
+export async function resolveSdkEndpointForApplication(
+    db: PrismaClient,
+    applicationId: string,
+): Promise<ResolvedSdkEndpoint> {
+    const [application, roles] = await Promise.all([
+        db.application.findUnique({
+            where: { id: applicationId },
+            select: {
+                mainBranch: {
+                    select: {
+                        deployment: { select: { webhookUrl: true } },
+                        previewkitEnvironment: { select: { urls: true } },
+                    },
+                },
+            },
+        }),
+        resolveConfiguredSdkRoles(db, applicationId),
+    ]);
+
+    const storedEndpoint = application?.mainBranch?.deployment?.webhookUrl ?? undefined;
+    const envUrls = parseStringRecord(application?.mainBranch?.previewkitEnvironment?.urls);
+    const declaredSdkAppUrl = roles.declaredAppName != null ? envUrls[roles.declaredAppName] : undefined;
+
+    return {
+        sdkUrl: reResolveSdkEndpoint({ storedEndpoint, declaredSdkAppUrl, declaredPath: roles.path }),
+        storedEndpoint,
+        sdkAppName: roles.declaredAppName,
+    };
 }

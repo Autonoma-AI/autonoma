@@ -74,6 +74,11 @@ export class OnboardingService extends Service {
         return this.manager.getPreviewkitConfig(applicationId, organizationId);
     }
 
+    /** The SDK endpoint the app's base preview resolves to now, for surfacing a host mismatch before a run hits it. */
+    async resolveSdkEndpoint(applicationId: string, organizationId: string) {
+        return this.manager.resolveSdkEndpoint(applicationId, organizationId);
+    }
+
     async savePreviewkitConfig(
         applicationId: string,
         organizationId: string,

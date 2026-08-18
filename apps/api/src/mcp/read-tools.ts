@@ -34,7 +34,12 @@ export function registerReadTools(server: McpServer, { services, analytics, reso
                 "is the case an `applyReady` block is returned: edit and send `applyReady.document` instead - it is " +
                 "the same config with those builds rewritten as the supported equivalent, and `applyReady.guidance` " +
                 "says what to tell the user. There is ONE config per application: it is shared by the base " +
-                "environment and every pull request, so no PR number is involved here and none can narrow it.",
+                "environment and every pull request, so no PR number is involved here and none can narrow it. " +
+                "`sdkEndpoint` reports WHERE a scenario provision against the base preview will actually POST: " +
+                "`sdkUrl` is the resolved endpoint, `storedEndpoint` is the raw value it was last stored at, and " +
+                "`sdkAppName` is the app the config declares as the SDK host. When `sdkUrl` and `storedEndpoint` " +
+                "have different HOSTS the stored endpoint is stale - it points at a different app than the one that " +
+                "now hosts the handler - and the provision will use `sdkUrl`.",
             inputSchema: targetInputFields,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
@@ -43,13 +48,18 @@ export function registerReadTools(server: McpServer, { services, analytics, reso
                 try {
                     const { applicationId, organizationId } = await resolveTarget(toTargetInput(input));
                     // The onboarding read, which is a superset of what the debug one returned: it
-                    // adds `deployBranch`, and both reach the same underlying config service.
-                    const config = await services.onboarding.getPreviewkitConfig(applicationId, organizationId);
+                    // adds `deployBranch`, and both reach the same underlying config service. The SDK
+                    // endpoint is resolved alongside so a host mismatch is visible before a provision hits it.
+                    const [config, sdkEndpoint] = await Promise.all([
+                        services.onboarding.getPreviewkitConfig(applicationId, organizationId),
+                        services.onboarding.resolveSdkEndpoint(applicationId, organizationId),
+                    ]);
                     return jsonResult({
                         document: config.document,
                         configExists: config.saved,
                         deployBranch: config.deployBranch,
                         applyReady: applyReadyConfig(config.document),
+                        sdkEndpoint,
                     });
                 } catch (err) {
                     return toToolResult(err);
