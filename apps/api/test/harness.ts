@@ -60,6 +60,11 @@ export class APITestHarness implements IntegrationHarness {
      */
     public readonly auth: Auth;
     /**
+     * The same ScenarioManager the services are built with, so a test constructing a service by hand
+     * gets the SDK seam the router has rather than a second one wired to a different encryption key.
+     */
+    public readonly scenarioManager: ScenarioManager;
+    /**
      * The bare domain the internal organization is keyed on, read from the same env the services use -
      * so a test about internal-vs-customer precedence cannot disagree with the code under test.
      */
@@ -82,12 +87,14 @@ export class APITestHarness implements IntegrationHarness {
         githubApp: FakeGitHubApp,
         emailSender: RecordingEmailSender,
         auth: Auth,
+        scenarioManager: ScenarioManager,
     ) {
         this.redisClient = redisClient;
         this.services = services;
         this.githubApp = githubApp;
         this.emailSender = emailSender;
         this.auth = auth;
+        this.scenarioManager = scenarioManager;
     }
 
     static async create(): Promise<APITestHarness> {
@@ -147,7 +154,7 @@ export class APITestHarness implements IntegrationHarness {
             emailSender,
         });
 
-        const harness = new APITestHarness(db, services, redisClient, githubApp, emailSender, auth);
+        const harness = new APITestHarness(db, services, redisClient, githubApp, emailSender, auth, scenarioManager);
         harness.triggerWorkflow = triggerWorkflow as typeof harness.triggerWorkflow;
         harness.startAnalysisRun = startAnalysisRun;
         harness.startGenerationBatch = startGenerationBatch;

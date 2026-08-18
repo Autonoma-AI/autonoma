@@ -16,6 +16,12 @@ interface ReplaceParams {
     snapshotId: string;
     applicationId: string;
     recipesFile: ScenarioRecipesFile;
+    /**
+     * Model names the application's SDK endpoint advertises through `discover`. When supplied, a recipe
+     * naming a model the endpoint cannot build is rejected here instead of 400ing once per test at
+     * provisioning time. Omit it when discover was unavailable - the check is skipped, never guessed.
+     */
+    knownModels?: ReadonlySet<string>;
 }
 
 interface ReplaceResult {
@@ -73,11 +79,12 @@ export class ScenarioRecipeStore {
      * appear in the file. Throws when the application does not exist.
      */
     async replaceScenarioRecipes(params: ReplaceParams): Promise<ReplaceResult> {
-        const { snapshotId, applicationId, recipesFile } = params;
+        const { snapshotId, applicationId, recipesFile, knownModels } = params;
         this.logger.info("Replacing scenario recipes", {
             applicationId,
             snapshotId,
             recipeCount: recipesFile.recipes.length,
+            extra: { knownModelCount: knownModels?.size },
         });
 
         const application = await this.db.application.findUnique({
@@ -89,10 +96,15 @@ export class ScenarioRecipeStore {
         }
         const { organizationId } = application;
 
-        assertRecipesCanProvision(recipesFile.recipes);
+        assertRecipesCanProvision(recipesFile.recipes, knownModels);
 
         const recipeNames = recipesFile.recipes.map((recipe) => recipe.name);
         const now = new Date();
+        // `lastDiscoveredAt` means "the endpoint answered a discover call", so only a caller that
+        // actually got one - which is what `knownModels` is derived from - may stamp it. Ingestion used
+        // to set it unconditionally, leaving applications that have never been discovered at all
+        // claiming a discovery date, and hiding exactly the recipe/endpoint drift it should expose.
+        const discoveredAt = knownModels != null ? now : undefined;
         const structureJson = extractStructure(recipesFile.recipes);
         const structureFingerprint = hashRecipe(structureJson);
 
@@ -141,7 +153,7 @@ export class ScenarioRecipeStore {
                             name: recipe.name,
                             description: recipe.description,
                             lastSeenFingerprint: fingerprint,
-                            lastDiscoveredAt: now,
+                            lastDiscoveredAt: discoveredAt,
                             fingerprintChangedAt: now,
                             isDisabled: false,
                         },
@@ -176,7 +188,7 @@ export class ScenarioRecipeStore {
                         description: recipe.description,
                         activeRecipeVersionId: createdVersion.id,
                         lastSeenFingerprint: fingerprint,
-                        lastDiscoveredAt: now,
+                        lastDiscoveredAt: discoveredAt,
                         isDisabled: false,
                         ...(fingerprintChanged ? { fingerprintChangedAt: now } : {}),
                     },
@@ -295,9 +307,9 @@ export class ScenarioRecipeStore {
  * and the uploader is an agent that can fix and re-post immediately, so the message
  * names the offending recipe and every problem in it.
  */
-function assertRecipesCanProvision(recipes: ScenarioRecipe[]): void {
+function assertRecipesCanProvision(recipes: ScenarioRecipe[], knownModels: ReadonlySet<string> | undefined): void {
     const rejections = recipes.flatMap((recipe) => {
-        const problems = findRecipeProblems(recipe);
+        const problems = findRecipeProblems(recipe, knownModels);
         if (problems.length === 0) return [];
         return [`"${recipe.name}":\n${problems.map((problem) => `  - ${problem}`).join("\n")}`];
     });

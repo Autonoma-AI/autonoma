@@ -26,6 +26,7 @@ async function createSetupFixture(harness: APITestHarness, name: string) {
         harness.db,
         harness.services.onboarding.manager,
         new ScenarioRecipeStore(harness.db),
+        harness.scenarioManager,
     );
     const { id: setupId } = await service.createSetup(harness.userId, harness.organizationId, app.id, app.name);
 

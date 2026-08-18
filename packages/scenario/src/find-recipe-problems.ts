@@ -20,13 +20,18 @@ const SAMPLE_TEST_RUN_ID = "00000000-0000-4000-8000-000000000000";
  * problems that live in a `variables` block rather than in the graph (an unused
  * definition, an unsupported faker generator, a malformed derived format).
  *
+ * `knownModels` is the set of model names the customer's endpoint advertises through
+ * `discover`. Supplying it adds the third layer - whether the endpoint can actually
+ * build what the recipe asks for. Omit it when no discover response is available;
+ * the check is then skipped rather than guessed at.
+ *
  * Returns one human-readable message per problem (empty array = clean) so a caller
  * can hand the list straight back to whoever submitted the recipe - a UI editor,
  * an onboarding agent, the planner - and have them fix it. This is the check that
  * turns "the dry run failed twenty minutes later" into "the save was rejected with
  * the reason".
  */
-export function findRecipeProblems(recipe: ScenarioRecipe): string[] {
+export function findRecipeProblems(recipe: ScenarioRecipe, knownModels?: ReadonlySet<string>): string[] {
     const logger = rootLogger.child({ name: "findRecipeProblems" });
     logger.info("Checking recipe for provisioning-time problems", { extra: { scenarioName: recipe.name } });
 
@@ -36,6 +41,16 @@ export function findRecipeProblems(recipe: ScenarioRecipe): string[] {
             resolveRecipePayload(recipe, SAMPLE_TEST_RUN_ID);
         } catch (err) {
             problems.push(err instanceof Error ? err.message : String(err));
+        }
+    }
+    // An absent set means no discover answered, so nothing is known about what the endpoint can build
+    // and this layer is skipped rather than guessed at.
+    if (knownModels != null) {
+        for (const model of Object.keys(recipe.create)) {
+            if (knownModels.has(model)) continue;
+            problems.push(
+                `the SDK endpoint has no factory for "${model}" - register one with defineFactory(...) and add it to HandlerConfig.factories, or drop the entity from the recipe`,
+            );
         }
     }
 

@@ -47,8 +47,18 @@ export class ScenarioManager {
         this.recorder = new DbSdkCallRecorder(db);
     }
 
-    async discover(applicationId: string, deploymentId: string, options?: SdkCallOptions): Promise<DiscoverResponse> {
-        const applicationData = await this.getApplicationDataForDeployment(applicationId, deploymentId);
+    /**
+     * `sdkUrlOverride` asks a specific endpoint what it can build rather than the one the deployment
+     * row records - which is what lets a caller interrogate a preview that has only just announced
+     * itself, before any deployment row points at it.
+     */
+    async discover(
+        applicationId: string,
+        deploymentId: string,
+        options?: SdkCallOptions,
+        sdkUrlOverride?: string,
+    ): Promise<DiscoverResponse> {
+        const applicationData = await this.getApplicationDataForDeployment(applicationId, deploymentId, sdkUrlOverride);
         const sdkClient = this.createSdkClient(applicationData);
 
         this.logger.info("Calling discover on SDK endpoint", { applicationId });

@@ -1,7 +1,9 @@
 import { createHmac } from "node:crypto";
+import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { integrationTestSuite } from "@autonoma/integration-test";
-import { EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
+import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
+import type { DiscoverResponse } from "@autonoma/types";
 import { expect, vi } from "vitest";
 import { DryRunSubject } from "../../src/routes/onboarding/dry-run-subject";
 import { OnboardingManager } from "../../src/routes/onboarding/onboarding-manager";
@@ -972,6 +974,60 @@ integrationTestSuite({
                 select: { mainBranch: { select: { deployment: { select: { webDeployment: true } } } } },
             });
             expect(app.mainBranch?.deployment?.webDeployment?.url).toBe("https://byo-preview.example.com");
+        });
+
+        test("acceptDeploymentSignal refuses a deployment that cannot build the stored recipes", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            // The endpoint advertises User only, while the recipe also asks for RefinementLoop - the
+            // shape of the break this check exists for: a factory deleted under a recipe that still
+            // names the entity. The SDK would reject the whole create graph, so no test could run.
+            const manager = new OnboardingManager(
+                harness.db,
+                new StubScenarioManager(harness.db, ["User"]),
+                fakeEncryption,
+            );
+            await manager.getState(appId);
+            const snapshotId = await seedMainBranchRecipe(harness, appId, orgId, ["User", "RefinementLoop"]);
+            const bodyText = deploymentSignalBody(appId, "https://drifted.example.com");
+
+            await expect(
+                manager.acceptDeploymentSignal({
+                    bodyText,
+                    signature: deploymentSignalSignature(bodyText, "shared-secret"),
+                }),
+            ).rejects.toThrow(/no factory for standard: RefinementLoop/);
+
+            // Refused before anything moved: the preview URL is not recorded, so no run is opened
+            // against a deployment every test would have failed to provision on.
+            const state = await manager.getState(appId);
+            expect(state.previewUrl).toBeNull();
+            expect(snapshotId).not.toBe("");
+        });
+
+        test("acceptDeploymentSignal accepts a deployment that can build every model named", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            const manager = new OnboardingManager(
+                harness.db,
+                new StubScenarioManager(harness.db, ["User", "Organization"]),
+                fakeEncryption,
+            );
+            await manager.getState(appId);
+            await seedMainBranchRecipe(harness, appId, orgId, ["User", "Organization"]);
+            const bodyText = deploymentSignalBody(appId, "https://healthy.example.com");
+
+            await manager.acceptDeploymentSignal({
+                bodyText,
+                signature: deploymentSignalSignature(bodyText, "shared-secret"),
+            });
+
+            const state = await manager.getState(appId);
+            expect(state.previewUrl).toBe("https://healthy.example.com");
         });
 
         test("acceptDeploymentSignal rejects invalid JSON as a deployment signal body error", async ({
@@ -2716,6 +2772,99 @@ async function seedSecret(harness: OnboardingTestHarness, applicationId: string)
             maskedLength: 32,
         },
     });
+}
+
+/**
+ * A ScenarioManager whose discover answers with a fixed model list. Subclassed rather than faked with a
+ * cast so the discover signature is checked against the real one - a stub that drifts out of shape is
+ * exactly how a test keeps passing while the code it stands in for stops working.
+ */
+class StubScenarioManager extends ScenarioManager {
+    constructor(
+        db: PrismaClient,
+        private readonly modelNames: string[],
+    ) {
+        super(db, fakeEncryption);
+    }
+
+    public override async discover(): Promise<DiscoverResponse> {
+        return {
+            schema: {
+                models: this.modelNames.map((name) => ({ name, fields: [] })),
+                edges: [],
+                relations: [],
+                scopeField: "organizationId",
+            },
+        };
+    }
+}
+
+/**
+ * Put a recipe naming `modelNames` on the app's main-branch active snapshot, with a deployment for the
+ * signal check to borrow SDK config from. Returns the snapshot id the recipe is pinned to.
+ */
+async function seedMainBranchRecipe(
+    harness: OnboardingTestHarness,
+    applicationId: string,
+    organizationId: string,
+    modelNames: string[],
+): Promise<string> {
+    await harness.db.application.update({
+        where: { id: applicationId },
+        data: { signingSecretEnc: fakeEncryption.encrypt("shared-secret") },
+    });
+    await harness.db.onboardingState.update({
+        where: { applicationId },
+        data: { previewEnvironmentMode: "existing_deploys" },
+    });
+
+    const app = await harness.db.application.findUniqueOrThrow({
+        where: { id: applicationId },
+        select: { mainBranchId: true },
+    });
+    const branchId = app.mainBranchId;
+    if (branchId == null) throw new Error(`Application ${applicationId} has no main branch`);
+
+    const deployment = await harness.db.branchDeployment.create({
+        data: { branchId, organizationId, webhookUrl: "https://sdk.example.com/api/autonoma", active: true },
+    });
+    const snapshot = await harness.db.branchSnapshot.create({
+        data: { branchId, source: "MANUAL", status: "active", headSha: "recipe-head", baseSha: "recipe-base" },
+    });
+    await harness.db.branch.update({
+        where: { id: branchId },
+        data: { activeSnapshotId: snapshot.id, deploymentId: deployment.id },
+    });
+
+    const schemaSnapshot = await harness.db.scenarioSchemaSnapshot.create({
+        data: { applicationId, snapshotId: snapshot.id, structureJson: { models: {} }, fingerprint: "fp-structure" },
+    });
+    const scenario = await harness.db.scenario.create({
+        data: { applicationId, organizationId, name: "standard", description: "seeded" },
+    });
+    await harness.db.scenarioRecipeVersion.create({
+        data: {
+            scenarioId: scenario.id,
+            snapshotId: snapshot.id,
+            schemaSnapshotId: schemaSnapshot.id,
+            applicationId,
+            organizationId,
+            scenarioNameSnapshot: "standard",
+            description: "seeded",
+            fingerprint: "fp-recipe",
+            validationStatus: "validated",
+            validationMethod: "checkScenario",
+            validationPhase: "ok",
+            fixtureJson: {
+                name: "standard",
+                description: "seeded",
+                create: Object.fromEntries(modelNames.map((name) => [name, [{ _alias: `${name}_1` }]])),
+                validation: { status: "validated", method: "checkScenario", phase: "ok" },
+            },
+        },
+    });
+
+    return snapshot.id;
 }
 
 function deploymentSignalBody(applicationId: string, previewUrl: string): string {

@@ -23,12 +23,13 @@ import {
     type PreviewkitConfigSecrets,
     type SecretItem,
 } from "@autonoma/types";
-import { hasGoneLive } from "@autonoma/types";
+import { hasGoneLive, ScenarioRecipeSchema } from "@autonoma/types";
 import { z } from "zod";
 import { applicationBranchRefs } from "../../github/application-branch-refs";
 import { isGithubNotFound, normalizeBranchName } from "../../github/git-ref";
 import { assertApplicationInOrg } from "./assert-application-in-org";
 import {
+    type DeploymentSignalBody,
     type DeploymentSignalInput,
     isCommitSha,
     parseDeploymentSignalBody,
@@ -914,7 +915,7 @@ export class OnboardingManager {
                 organizationId: true,
                 githubRepositoryId: true,
                 signingSecretEnc: true,
-                mainBranch: { select: { deploymentId: true, name: true } },
+                mainBranch: { select: { deploymentId: true, name: true, activeSnapshotId: true } },
                 onboardingState: { select: { previewEnvironmentMode: true, step: true, diffTriggerConfirmedAt: true } },
             },
         });
@@ -933,6 +934,11 @@ export class OnboardingManager {
         if (application.onboardingState?.previewEnvironmentMode !== "existing_deploys") {
             throw new ConflictError("Application is not configured for external deployment signals");
         }
+
+        // Before any snapshot, clone or test run exists. This is the one moment both halves of the
+        // provisioning contract are in hand at once - the stored recipes, and the code that just
+        // deployed - so it is the only place drift between them is catchable.
+        await this.assertDeployedCodeCanBuildRecipes(application, body);
 
         const mainBranchName = application.mainBranch?.name;
         const branchIsProviderCommitRef = body.branch != null && isCommitSha(body.branch);
@@ -990,6 +996,105 @@ export class OnboardingManager {
         }
 
         return { ok: true, applicationId: application.id, previewUrl: body.previewUrl, ignored: false };
+    }
+
+    /**
+     * Refuse a deployment whose code cannot build the recipes its tests will provision from.
+     *
+     * The recipes live in this database; the factory registry that has to build them lives in the
+     * deployed application. Nothing links the two, so deleting a factory an existing recipe still names
+     * breaks every run silently - the SDK rejects the whole create graph over one unknown model, so the
+     * suite reports N failed tests rather than one broken environment. This turns that into a rejected
+     * signal, which fails the deploy step that sent it, naming the model.
+     *
+     * The recipes checked are the main branch's, because that is what a new snapshot forks
+     * (`forkScenarioDataForSnapshot`). Discover goes to `body.sdkUrl` - the endpoint that just
+     * announced itself - not to whatever the deployment row still points at, or this would interrogate
+     * the wrong build entirely.
+     *
+     * Fails OPEN on everything except a successful discover that disagrees: no snapshot, no recipes, no
+     * deployment to borrow config from, or an endpoint that will not answer are all ordinary states,
+     * and a signal is far too load-bearing to drop over a check that could not run.
+     */
+    private async assertDeployedCodeCanBuildRecipes(
+        application: {
+            id: string;
+            mainBranch: { deploymentId: string | null; activeSnapshotId: string | null } | null;
+        },
+        body: DeploymentSignalBody,
+    ): Promise<void> {
+        const snapshotId = application.mainBranch?.activeSnapshotId;
+        const deploymentId = application.mainBranch?.deploymentId;
+        if (snapshotId == null || deploymentId == null) return;
+
+        const stored = await this.db.scenarioRecipeVersion.findMany({
+            where: { applicationId: application.id, snapshotId },
+            select: { scenarioNameSnapshot: true, fixtureJson: true },
+        });
+        if (stored.length === 0) return;
+
+        const knownModels = await this.discoverKnownModels(application.id, deploymentId, body.sdkUrl);
+        if (knownModels == null) return;
+
+        const unbuildable = stored.flatMap((version) => {
+            const recipe = ScenarioRecipeSchema.safeParse(version.fixtureJson);
+            if (!recipe.success) return [];
+            return Object.keys(recipe.data.create)
+                .filter((model) => !knownModels.has(model))
+                .map((model) => `${version.scenarioNameSnapshot}: ${model}`);
+        });
+
+        if (unbuildable.length === 0) {
+            this.logger.info("Deployed code can build every model the recipes name", {
+                applicationId: application.id,
+                extra: { snapshotId, knownModelCount: knownModels.size, recipeCount: stored.length },
+            });
+            return;
+        }
+
+        this.logger.error("Rejecting deployment signal: the deployed code cannot build the stored recipes", {
+            applicationId: application.id,
+            extra: { snapshotId, unbuildable },
+        });
+        throw new BadRequestError(
+            `The deployed SDK endpoint has no factory for ${unbuildable.join(", ")}. Every scenario naming ` +
+                `those models will fail to provision, so no test would run against this deployment. Register the ` +
+                `factory again, or upload a recipe that no longer asks for the entity.`,
+        );
+    }
+
+    /**
+     * The models an endpoint says it can build, or undefined when no usable answer came back - which is
+     * the only thing a caller has to handle, so it never has to reinterpret an empty set.
+     *
+     * An endpoint advertising nothing is such an answer: a handler mounted with no factories at all is
+     * indistinguishable from a broken one, and reading it as "can build nothing" would condemn every
+     * recipe. try/catch rather than a rejection handler because a caller can hold a ScenarioManager
+     * whose discover is absent entirely, which throws synchronously and would sail past `.catch()`.
+     */
+    private async discoverKnownModels(
+        applicationId: string,
+        deploymentId: string,
+        sdkUrl: string | undefined,
+    ): Promise<ReadonlySet<string> | undefined> {
+        try {
+            const discovered = await this.scenarioManager.discover(applicationId, deploymentId, undefined, sdkUrl);
+            if (discovered.schema.models.length === 0) {
+                this.logger.warn("Discover advertised no models - not checking the deployed code", {
+                    applicationId,
+                    extra: { deploymentId, sdkUrl },
+                });
+                return undefined;
+            }
+            return new Set(discovered.schema.models.map((model) => model.name));
+        } catch (err) {
+            this.logger.warn("Discover failed - not checking the deployed code against the recipes", {
+                applicationId,
+                extra: { deploymentId, sdkUrl },
+                err,
+            });
+            return undefined;
+        }
     }
 
     /**

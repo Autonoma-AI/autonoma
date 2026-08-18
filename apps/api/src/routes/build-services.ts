@@ -194,7 +194,12 @@ export function buildServices({
     );
     const prCacheService = new PullRequestCacheService(conn, githubService);
     const apiKeysService = new ApiKeysService(conn);
-    const applicationSetupService = new ApplicationSetupService(conn, onboardingManager, new ScenarioRecipeStore(conn));
+    const applicationSetupService = new ApplicationSetupService(
+        conn,
+        onboardingManager,
+        new ScenarioRecipeStore(conn),
+        scenarioManager,
+    );
     const suiteHealthService = new SuiteHealthService(conn);
     const branchesService = new BranchesService(conn, githubService, storageProvider, prCacheService);
     const falsePositiveCandidatesService = new FalsePositiveCandidateService(conn);

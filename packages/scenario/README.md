@@ -10,7 +10,7 @@ It also owns **which deployment that endpoint belongs to**: the `BranchDeploymen
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `ScenarioManager`         | DB-backed orchestrator for the up/down lifecycle and discover                                                            |
 | `ScenarioRecipeStore`     | Persistence layer for recipe ingestion (`replaceScenarioRecipes`) and lookup (`loadRecipePayload`, which also returns the version's id + fingerprint so a run can record what it provisioned) |
-| `findRecipeProblems`      | Everything about a recipe that will fail at provisioning time but is knowable without a deploy: an unreadable `create` graph, a `_ref` matching no `_alias`, tokens that cannot resolve |
+| `findRecipeProblems`      | Everything about a recipe that will fail at provisioning time but is knowable without a deploy: an unreadable `create` graph, a `_ref` matching no `_alias`, tokens that cannot resolve, and - when passed the model names a `discover` advertised - entities the endpoint has no factory for |
 | `SdkClient`               | HMAC-signed HTTP client for the customer's SDK endpoint. Pure: no Prisma, single attempt per call                       |
 | `SdkHttpError`            | Thrown on a non-2xx SDK response. Carries `status` (and `detail`) as structured fields so callers can branch (e.g. on 401) without parsing the message |
 | `SdkCallRecorder`         | Per-call observability seam. Default `NOOP_RECORDER` for tests; production uses `DbSdkCallRecorder`                      |
@@ -33,8 +33,11 @@ const manager = new ScenarioManager(prisma, encryption);
 const recipeStore = new ScenarioRecipeStore(prisma);
 
 // Recipe ingestion - typically invoked from ApplicationSetupService when
-// recipes are uploaded:
-await recipeStore.replaceScenarioRecipes({ snapshotId, applicationId, recipesFile });
+// recipes are uploaded. `knownModels` is the model set a `discover` returned;
+// pass it and a recipe naming an entity the endpoint cannot build is rejected
+// here rather than 400ing once per test at provisioning time. Omit it when no
+// discover was possible - the check is skipped, not guessed.
+await recipeStore.replaceScenarioRecipes({ snapshotId, applicationId, recipesFile, knownModels });
 
 // Spin up a scenario instance before a test generation
 const subject = new GenerationSubject(prisma, generationId);
@@ -61,7 +64,7 @@ const result = await client.discover();
 
 ### Scenario lifecycle
 
-1. **Ingest recipes** - `ApplicationSetupService` calls `ScenarioRecipeStore.replaceScenarioRecipes` when recipes are uploaded through `POST .../scenario-recipe-versions`. Recipes that cannot provision are rejected before anything is stored. The payload is split into a snapshot-scoped `scenario_schema_snapshot` (keyed by `applicationId + snapshotId`) plus per-scenario `scenario_recipe_version.fixture_json` (keyed by `scenarioId + snapshotId`). The active recipe pointer on `scenario` is updated, and names no longer present are disabled. Re-uploading for the same snapshot replaces recipe versions transactionally.
+1. **Ingest recipes** - `ApplicationSetupService` calls `ScenarioRecipeStore.replaceScenarioRecipes` when recipes are uploaded through `POST .../scenario-recipe-versions`. It first tries a `discover` against the application's most recent deployment with an SDK endpoint and passes the advertised model names as `knownModels`; a failed or impossible discover is not fatal, it just skips that one check. Recipes that cannot provision are rejected before anything is stored, and `scenario.lastDiscoveredAt` is stamped only when a discover actually answered. The payload is split into a snapshot-scoped `scenario_schema_snapshot` (keyed by `applicationId + snapshotId`) plus per-scenario `scenario_recipe_version.fixture_json` (keyed by `scenarioId + snapshotId`). The active recipe pointer on `scenario` is updated, and names no longer present are disabled. Re-uploading for the same snapshot replaces recipe versions transactionally.
 
 2. **Up** - Resolves the active recipe's `create` payload into concrete data using the generated run id, creates a `scenarioInstance` record in `REQUESTED` status (stamped with `recipeVersionId` + `recipeFingerprint`, so the run stays identifiable after the recipe is edited), links it to the subject (generation), then calls the SDK endpoint with `action: "up"` and the populated payload. Passing `candidateRecipe` provisions that recipe instead of the stored one and persists no version - the loop an agent iterates in. On success, the instance is updated to `UP_SUCCESS` with auth credentials, refs, and metadata returned by the endpoint. On failure, it transitions to `UP_FAILED`.
 

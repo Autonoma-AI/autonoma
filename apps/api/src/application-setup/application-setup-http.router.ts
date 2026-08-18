@@ -27,7 +27,7 @@ applicationSetupHttpRouter.use("*", requireApiKey({ db, appUrl: env.APP_URL }));
 
 const onboardingManager = new OnboardingManager(db, scenarioManager, encryptionHelper, { getVercelEncryptionHelper });
 const recipeStore = new ScenarioRecipeStore(db);
-const service = new ApplicationSetupService(db, onboardingManager, recipeStore);
+const service = new ApplicationSetupService(db, onboardingManager, recipeStore, scenarioManager);
 
 applicationSetupHttpRouter.post("/setups", async (c) => {
     const { userId, organizationId } = c.var.user;

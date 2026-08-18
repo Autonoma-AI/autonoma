@@ -20,7 +20,7 @@ Scenarios solve two problems:
 
 The customer deploys our SDK as part of their backend. The SDK exposes a single HTTP endpoint that handles three actions:
 
-- **`discover`** - returns the schema of available models so we know what types of entities the app supports. Called during onboarding (to validate a webhook URL + signing secret) and on demand from the API.
+- **`discover`** - returns the schema of available models so we know what types of entities the app supports. Called during onboarding (to validate a webhook URL + signing secret), on demand from the API, and at recipe ingestion to check the recipe only names models the endpoint can build.
 - **`up`** - takes a `create` payload (the recipe with variables resolved) plus a `testRunId`, builds the entities, and returns `{ auth, refs, refsToken, expiresInSeconds?, metadata? }` so the test can authenticate.
 - **`down`** - takes the `refs` and `refsToken` from a prior `up` and tears down the instance.
 
@@ -53,7 +53,7 @@ A recipe file (`autonoma/scenario-recipes.json`) is a list of recipes, each cont
   - `literal` - fixed value.
   - `derived` - templated from `testRunId` (e.g. `format: "owner+{testRunId}@example.com"`).
   - `faker` - one of a small set of seeded generators (`person.firstName`, `internet.email`, `company.name`, `lorem.words`, etc.). Output is deterministic per `(testRunId, tokenName)` pair.
-- `validation` - metadata about whether the planner managed to dry-run the recipe before uploading. `status` and `phase` are single-valued literals and `method` is one of `SCENARIO_VALIDATION_METHODS`, so the block carries no decision its author makes - the planner CLI rewrites all three to the accepted values rather than rejecting a recipe over them.
+- `validation` - metadata about whether the planner managed to dry-run the recipe before uploading. `status` and `phase` are single-valued literals and `method` is one of `SCENARIO_VALIDATION_METHODS`, so the block carries no decision its author makes - the planner CLI rewrites all three to the accepted values rather than rejecting a recipe over them. **Never read it as evidence a recipe works**: every one of the dogfood recipe versions that could not provision for three weeks was stored `validated / endpoint-up-down / ok`. The checks that actually decide are `findRecipeProblems` when a recipe is uploaded, and the model diff `OnboardingManager.acceptDeploymentSignal` runs when a deployment announces itself. To rehearse a recipe by hand, `checkScenario` from `@autonoma-ai/sdk` runs a real up/down against a registry.
 
 When loading a recipe for a run, we collect every `{{token}}` in `create`, validate that every used token has a definition (and every defined token is used), resolve them, and substitute them in. Unresolved tokens after substitution are an error.
 
@@ -61,7 +61,7 @@ The structure summary stored in `scenarioSchemaSnapshot.structureJson` is a sort
 
 ## Lifecycle
 
-1. **Setup / recipe ingestion.** The customer's planner plugin uploads `scenario-recipes.json` to `POST /setups/:id/scenario-recipe-versions`. The application-setup service writes recipes for the active snapshot (and replicates them to the pending snapshot if there is one, so a snapshot under construction stays in sync).
+1. **Setup / recipe ingestion.** The customer's planner plugin uploads `scenario-recipes.json` to `POST /setups/:id/scenario-recipe-versions`. The application-setup service tries a `discover` first and passes the advertised model names in as `knownModels`, so a recipe naming an entity the endpoint has no factory for is rejected with a 400 that names it - the SDK refuses the whole `create` graph over one unknown model, so this would otherwise fail once per test. A discover that cannot run is not fatal; only a successful one that disagrees rejects. Recipes are then written for the active snapshot (and replicated to the pending snapshot if there is one, so a snapshot under construction stays in sync). New snapshots do not re-ingest - `forkScenarioDataForSnapshot` copies the recipe rows along the branch lineage, so a fix on main's snapshot propagates forward.
 
 2. **Onboarding validation.** When a customer enters their SDK URL + signing secret, the onboarding state machine calls `discover` *with the caller-supplied config* before persisting it. A failed call leaves the URL unsaved and surfaces a typed error so the user can correct it. After persistence, the user can run a dry-run scenario from onboarding (`up` then `down`).
 

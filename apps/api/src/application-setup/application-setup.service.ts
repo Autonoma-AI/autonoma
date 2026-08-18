@@ -3,7 +3,7 @@ import matter from "@11ty/gray-matter";
 import type { Prisma, PrismaClient } from "@autonoma/db";
 import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { logger } from "@autonoma/logger";
-import type { ScenarioRecipeStore } from "@autonoma/scenario";
+import type { ScenarioManager, ScenarioRecipeStore } from "@autonoma/scenario";
 import { BranchAlreadyOpenError, type OpenSnapshot, TestSuiteStore } from "@autonoma/test-suite";
 import {
     type SetupEventBody,
@@ -46,6 +46,7 @@ export class ApplicationSetupService {
         private readonly db: PrismaClient,
         private readonly onboardingManager: OnboardingManager,
         private readonly recipeStore: ScenarioRecipeStore,
+        private readonly scenarioManager: ScenarioManager,
     ) {
         this.suite = new TestSuiteStore(db);
     }
@@ -621,10 +622,13 @@ export class ApplicationSetupService {
             throw new BadRequestError("Application main branch has no active snapshot");
         }
 
+        const knownModels = await this.discoverKnownModels(setup.applicationId);
+
         const result = await this.recipeStore.replaceScenarioRecipes({
             snapshotId,
             applicationId: setup.applicationId,
             recipesFile: body,
+            knownModels,
         });
         log.info("Ingested scenario recipes", {
             setupId: setup.id,
@@ -644,6 +648,7 @@ export class ApplicationSetupService {
                 snapshotId: pendingSnapshotId,
                 applicationId: setup.applicationId,
                 recipesFile: body,
+                knownModels,
             });
 
             await this.db.$transaction(
@@ -657,6 +662,50 @@ export class ApplicationSetupService {
         }
 
         return result;
+    }
+
+    /**
+     * The models the application's SDK endpoint says it can build, so a recipe naming one it cannot is
+     * rejected at upload rather than 400ing once per test at provisioning time.
+     *
+     * Best-effort by design: an endpoint that is not deployed yet, has no deployment row, or is simply
+     * unreachable is the normal state during onboarding, and rejecting an upload for that would block a
+     * customer from ever seeding their first recipe. A failure here therefore returns undefined - the
+     * model check is skipped, and the recipe still goes through every check that needs no network.
+     */
+    private async discoverKnownModels(applicationId: string): Promise<ReadonlySet<string> | undefined> {
+        const deployment = await this.db.branchDeployment.findFirst({
+            where: { branch: { applicationId }, webhookUrl: { not: null } },
+            orderBy: { createdAt: "desc" },
+            select: { id: true },
+        });
+        if (deployment == null) {
+            log.info("No deployment with an SDK endpoint - skipping the recipe model check", { applicationId });
+            return undefined;
+        }
+
+        try {
+            const response = await this.scenarioManager.discover(applicationId, deployment.id);
+            // An endpoint advertising nothing is indistinguishable from a broken one, and reading it as
+            // "can build nothing" would reject every recipe - so it counts as no answer, not an empty one.
+            if (response.schema.models.length === 0) {
+                log.warn("Discover advertised no models - skipping the recipe model check", { applicationId });
+                return undefined;
+            }
+            const models = new Set(response.schema.models.map((model) => model.name));
+            log.info("Discovered SDK models for the recipe model check", {
+                applicationId,
+                extra: { deploymentId: deployment.id, modelCount: models.size },
+            });
+            return models;
+        } catch (err) {
+            log.warn("Discover failed - skipping the recipe model check", {
+                applicationId,
+                extra: { deploymentId: deployment.id },
+                err,
+            });
+            return undefined;
+        }
     }
 
     /**
