@@ -14,7 +14,7 @@ import { runRecipeBuilder } from "../../src/agents/04-recipe-builder/index";
 import { RECIPE_FILE } from "../../src/agents/04-recipe-builder/recipe";
 import type { RecipeBuilderState } from "../../src/agents/04-recipe-builder/state";
 import type { AppConfig } from "../../src/config";
-import type { AgentLauncher } from "../../src/core/coding-agent";
+import type { AgentLauncher, LaunchResult } from "../../src/core/coding-agent";
 
 interface FakeSpec {
     exitCode: number;
@@ -23,6 +23,8 @@ interface FakeSpec {
     available?: boolean;
     /** Whether the agent writes the completion marker (a finished session does). */
     writeMarker: boolean;
+    /** Whether a process was ever created. False stands in for a machine that refused to run it. */
+    started?: boolean;
     outputDir: string;
 }
 
@@ -35,7 +37,7 @@ function fakeLauncher(spec: FakeSpec): AgentLauncher & { calls: number } {
         label: spec.label ?? "Fake Agent",
         isAvailable: () => Promise.resolve(spec.available ?? true),
         registerMcpServer: () => Promise.resolve({ env: {} }),
-        async launch(): Promise<number> {
+        async launch(): Promise<LaunchResult> {
             launcher.calls++;
             if (spec.writeMarker) {
                 await writeFile(
@@ -44,7 +46,7 @@ function fakeLauncher(spec: FakeSpec): AgentLauncher & { calls: number } {
                     "utf-8",
                 );
             }
-            return spec.exitCode;
+            return { started: spec.started ?? true, exitCode: spec.exitCode };
         },
     };
     return launcher;
@@ -180,6 +182,41 @@ describe("runRecipeBuilder handoff + completion", () => {
         expect(broken.calls).toBe(1);
         expect(working.calls).toBe(1);
         expect(result.success).toBe(true);
+    });
+
+    // The Windows shape: the binary is on PATH, so it is picked, and then the machine
+    // refuses to execute it. No process, so no exit code to judge - which used to read
+    // as a session that ran, spending the second attempt on the same refused binary and
+    // reporting a missing recipe. The other installed agent is the one thing that can
+    // still work, so it has to be reached.
+    test("an agent the machine will not start hands the retry to another installed agent", async () => {
+        await seedHandoffPhase(true);
+        const refused = fakeLauncher({ started: false, exitCode: 0, writeMarker: false, outputDir: dir });
+        const working = fakeLauncher({
+            exitCode: 0,
+            writeMarker: true,
+            outputDir: dir,
+            id: "other",
+            label: "Other Agent",
+        });
+
+        const result = await runRecipeBuilder({ ...baseInput(refused), launchers: [refused, working] });
+
+        expect(refused.calls).toBe(1);
+        expect(working.calls).toBe(1);
+        expect(result.success).toBe(true);
+    });
+
+    test("an agent the machine will not start blames the agent, not the missing recipe", async () => {
+        await seedHandoffPhase(true);
+        const refused = fakeLauncher({ started: false, exitCode: 0, writeMarker: false, outputDir: dir });
+
+        const result = await runRecipeBuilder(baseInput(refused));
+
+        expect(result.success).toBe(false);
+        expect(refused.calls).toBe(1);
+        expect(result.summary).toMatch(/Fake Agent could not be started on this machine/);
+        expect(result.summary).not.toMatch(/recipe\.json/);
     });
 
     test("a stale completion marker is cleared before launch - it can't fake success", async () => {

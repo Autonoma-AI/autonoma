@@ -111,6 +111,20 @@ the token and ids already filled in. If you are running standalone, mint a key u
 The planner checks this before it starts, so the run stops immediately instead of failing its first
 step over and over with nothing that explains why.
 
+### It says my coding agent is on my PATH but could not be run
+
+Your machine refused to execute it. The planner found the binary where it expected to - that is what
+"on your PATH" means - and the operating system declined to start it, which is a different problem
+from a missing or broken install. Reinstalling produces the same refusal.
+
+On Windows this is usually an execution policy (AppLocker, Software Restriction Policies) or an
+endpoint-security agent blocking `cmd.exe`, which is what npm-installed CLIs are launched through.
+On Linux and macOS it is most often a `noexec` mount or a missing execute bit. Confirm it by running
+the agent on its own in the same terminal - `claude --version` or `codex --version`. If that is
+refused too, the planner was never the problem.
+
+If you have a second agent installed, the planner switches to it by itself and carries on.
+
 ### It has been on the same step for ages - is it stuck?
 
 Probably not. A full run takes **an hour or more**. Building the knowledge base is the slowest early

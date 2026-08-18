@@ -32,6 +32,15 @@ export interface AgentLaunch {
     agentLabel: string;
     /** Stable id of that agent, so a retry can deliberately pick a different one. */
     agentId: string;
+    /**
+     * Whether a process was ever created. An absent exit code cannot answer this on its
+     * own: a session the watcher killed once its work was done reports none either.
+     *
+     * Optional because this is persisted across `--resume`, and a record written before
+     * the field existed describes a launch that did start - which is what every launch
+     * that got as far as being recorded meant at the time.
+     */
+    started?: boolean;
     exitCode: number | undefined;
     durationMs: number;
 }
@@ -43,6 +52,17 @@ export type LaunchOutcome =
     | { kind: "ran" };
 
 export function describeLaunchOutcome(launch: AgentLaunch): LaunchOutcome {
+    // A launch with no process behind it did no work, however long it took to find out
+    // and whatever exit code it reports - so it skips the timing heuristic entirely.
+    if (launch.started === false) {
+        return {
+            kind: "failed-to-start",
+            summary:
+                `${launch.agentLabel} could not be started on this machine, so the integration was never ` +
+                `attempted. The reason is printed above.`,
+        };
+    }
+
     const ranTooBriefly = launch.durationMs < FAILED_TO_START_MS;
     const exitedBadly = launch.exitCode != null && launch.exitCode !== 0;
     if (!ranTooBriefly || !exitedBadly) return { kind: "ran" };

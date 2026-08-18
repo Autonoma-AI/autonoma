@@ -36,7 +36,7 @@ function fakeLauncher(onLaunch?: (message: string) => void): AgentLauncher {
         registerMcpServer: () => Promise.resolve({ env: {} }),
         launch: (request) => {
             onLaunch?.(request.message);
-            return Promise.resolve(0);
+            return Promise.resolve({ started: true, exitCode: 0 });
         },
     };
 }

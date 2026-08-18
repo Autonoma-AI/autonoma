@@ -7,12 +7,18 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const CANCEL = Symbol("cancel");
 const selectMock = vi.fn();
+const logErrorMock = vi.fn();
 
 vi.mock("../../src/ui/prompts", () => ({
     select: (...args: unknown[]) => selectMock(...args),
     isCancel: (v: unknown) => v === CANCEL,
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    log: { info: vi.fn(), warn: vi.fn(), error: (...args: unknown[]) => logErrorMock(...args) },
 }));
+
+/** Everything the launcher told the user through `p.log.error` during a test. */
+function errorLogs(): string[] {
+    return logErrorMock.mock.calls.map((call) => String(call[0]));
+}
 
 const spawnMock = vi.fn();
 vi.mock("cross-spawn", () => ({ default: (...args: unknown[]) => spawnMock(...args) }));
@@ -44,7 +50,7 @@ function fakeLauncher(id: string, available: boolean): AgentLauncher {
         label: `Agent ${id}`,
         isAvailable: () => Promise.resolve(available),
         registerMcpServer: () => Promise.resolve({ env: {} }),
-        launch: () => Promise.resolve(0),
+        launch: () => Promise.resolve({ started: true, exitCode: 0 }),
     };
 }
 
@@ -109,6 +115,7 @@ beforeEach(async () => {
     storedAgentId = undefined;
     savedPreferences.length = 0;
     selectMock.mockReset();
+    logErrorMock.mockReset();
     spawnCalls = [];
     exitCodes = new Map();
     exitCodeSequences = new Map();
@@ -695,7 +702,7 @@ describe("launch", () => {
         const watch = vi.fn(() => stop);
         const claude = new ClaudeLauncher({ cwd: "/tmp/repo", env: {} });
 
-        const code = await claude.launch({
+        const result = await claude.launch({
             message: "do the thing",
             permissionMode: "bypassPermissions",
             interactive: true,
@@ -704,6 +711,80 @@ describe("launch", () => {
 
         expect(watch).toHaveBeenCalledTimes(1);
         expect(stop).toHaveBeenCalledTimes(1);
-        expect(code).toBe(0);
+        expect(result).toEqual({ started: true, exitCode: 0 });
+    });
+});
+
+/**
+ * Node throws rather than emits for every errno outside its deferred five, so an
+ * `error` listener on the returned process never sees an EPERM (a Windows execution
+ * policy or endpoint-security agent refusing the cmd.exe shim cross-spawn rewrites the
+ * call into). Each of these three sites is one that used to reject with a bare
+ * `spawn EPERM` and no stack.
+ */
+describe("a spawn that throws instead of emitting", () => {
+    function throwEperm(): void {
+        spawnMock.mockImplementation((command: string) => {
+            throw Object.assign(new Error("spawn EPERM"), { code: "EPERM", errno: -1, syscall: "spawn", command });
+        });
+    }
+
+    test("launch reports the machine and returns, rather than rejecting", async () => {
+        throwEperm();
+        const watch = vi.fn(() => vi.fn());
+
+        const result = await new ClaudeLauncher({ cwd: "/tmp/repo", env: {} }).launch({
+            message: "do the thing",
+            permissionMode: "bypassPermissions",
+            interactive: true,
+            watch,
+        });
+
+        // `started: false` is what routes the recipe handoff to a different agent
+        // instead of relaunching the one the machine just refused.
+        expect(result).toEqual({ started: false, exitCode: undefined });
+        // There is no process, so nothing was handed to the watcher to watch.
+        expect(watch).not.toHaveBeenCalled();
+        expect(errorLogs().join("\n")).toMatch(
+            /Claude Code is on your PATH but could not be run \(spawn claude EPERM\)/,
+        );
+    });
+
+    // Reinstalling cannot change a policy decision, and telling someone to do it sends
+    // them round a loop that ends in the same refusal.
+    test("says to check the policy that blocked it, not to reinstall", async () => {
+        throwEperm();
+
+        await new ClaudeLauncher({ cwd: "/tmp/repo", env: {} }).launch({
+            message: "do the thing",
+            permissionMode: "bypassPermissions",
+            interactive: false,
+        });
+
+        const reported = errorLogs().join("\n");
+        expect(reported).toMatch(/antivirus, endpoint security, or an execution policy/);
+        expect(reported).not.toMatch(/Reinstall it/);
+    });
+
+    // runCommand is documented to resolve a result on every failure, so the fallback
+    // machinery around a registration has something to inspect. A throw skipped it.
+    test("a registration blames the binary instead of rejecting with an errno", async () => {
+        throwEperm();
+
+        await expect(
+            new ClaudeLauncher({ cwd: "/tmp/repo", env: { CLAUDE_CONFIG_DIR: configDir } }).registerMcpServer(SPEC),
+        ).rejects.toThrow(/Claude Code is on your PATH but could not be run \(spawn claude EPERM\)/);
+    });
+
+    // Same for runAttached, which signIn is built on and documents as never throwing.
+    test("a sign-in blames the binary instead of rejecting with an errno", async () => {
+        throwEperm();
+
+        const error: unknown = await new CodexLauncher({ cwd: "/tmp/repo", env: {} })
+            .registerMcpServer(HEADLESS_SPEC)
+            .then(() => undefined)
+            .catch((err: unknown) => err);
+
+        expect(String(error)).toMatch(/Codex CLI is on your PATH but could not be run \(spawn codex EPERM\)/);
     });
 });

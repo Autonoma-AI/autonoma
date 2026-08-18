@@ -317,7 +317,7 @@ async function launchAgent(
     suspend();
     const startedAt = Date.now();
     try {
-        const exitCode = await launcher.launch({
+        const result = await launcher.launch({
             message: launchMessage(promptFile),
             permissionMode,
             interactive: target.interactive,
@@ -329,16 +329,20 @@ async function launchAgent(
         const launch: AgentLaunch = {
             agentLabel: launcher.label,
             agentId: launcher.id,
-            exitCode,
+            started: result.started,
+            exitCode: result.exitCode,
             durationMs: Date.now() - startedAt,
         };
-        p.log.info(
-            `${launcher.label} exited (code ${exitCode ?? "unknown"}) after ` +
-                `${Math.round(launch.durationMs / 1000)}s. Back to the planner.`,
-        );
+        if (result.started) {
+            p.log.info(
+                `${launcher.label} exited (code ${result.exitCode ?? "unknown"}) after ` +
+                    `${Math.round(launch.durationMs / 1000)}s. Back to the planner.`,
+            );
+        }
         track("cli_agent_launch_finished", {
             agent: launcher.id,
-            exit_code: exitCode,
+            exit_code: result.exitCode,
+            started: result.started,
             duration_ms: launch.durationMs,
             outcome: describeLaunchOutcome(launch).kind,
         });

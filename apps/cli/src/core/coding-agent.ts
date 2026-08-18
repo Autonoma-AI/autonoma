@@ -2,13 +2,13 @@ import type { StdioOptions } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import spawn from "cross-spawn";
 import which from "which";
 import * as p from "../ui/prompts";
 import { isSpawnedByPlanner as spawnedByPlanner, SPAWNED_BY_PLANNER_ENV } from "./agent-env";
 import { debugLog } from "./debug";
 import { captureLog } from "./logs";
 import { readPreferences, updatePreferences } from "./preferences";
+import { trySpawn } from "./try-spawn";
 
 /** Ceiling on a client's own `mcp` subcommands, which talk to the server to health-check it. */
 const MCP_COMMAND_TIMEOUT_MS = 60_000;
@@ -41,6 +41,13 @@ const CODEX_BEARER_TOKEN_ENV = "AUTONOMA_MCP_TOKEN";
 const CLAUDE_CONNECTED_MARKER = "Connected";
 
 /**
+ * Output that means the binary is present and intact and the OS refused to run it
+ * anyway: an execution policy, an endpoint-security agent, a noexec mount. Split out
+ * from the patterns below because it is the half of them reinstalling cannot fix.
+ */
+const EXECUTION_REFUSED_PATTERNS = [/\bEPERM\b/, /\bEACCES\b/, /\bENOEXEC\b/];
+
+/**
  * Output that means the client's own binary could not be executed at all, rather than
  * anything about the server it was asked to register. Patterns rather than a set: each
  * is a fragment of a longer line from a shell or the OS. Seen in the wild on Windows,
@@ -52,6 +59,7 @@ const CLIENT_NOT_EXECUTABLE_PATTERNS = [
     /command not found/i,
     /\bENOENT\b/,
     /no such file or directory/i,
+    ...EXECUTION_REFUSED_PATTERNS,
 ];
 
 /**
@@ -195,8 +203,20 @@ export interface AgentLauncher {
      * but a CLI process is not a session, and the agent it spawns afterwards is new.
      */
     registerMcpServer(spec: McpServerSpec): Promise<McpRegistration>;
-    /** Run the agent, resolving with its exit code once it exits. */
-    launch(request: LaunchRequest): Promise<number | undefined>;
+    /** Run the agent, resolving once it exits - or once it turns out it cannot start. */
+    launch(request: LaunchRequest): Promise<LaunchResult>;
+}
+
+/** What one launch did, from the outside. */
+export interface LaunchResult {
+    /**
+     * Whether a process was created at all. Callers that decide what to do next need
+     * this separately from the exit code, because an agent the caller's own watcher
+     * killed once its work was done also reports no code.
+     */
+    started: boolean;
+    /** The process's exit code, absent when it was signalled or never ran. */
+    exitCode: number | undefined;
 }
 
 export interface LauncherOptions {
@@ -281,7 +301,7 @@ export abstract class BaseLauncher implements AgentLauncher {
         return resolved != null;
     }
 
-    async launch(request: LaunchRequest): Promise<number | undefined> {
+    async launch(request: LaunchRequest): Promise<LaunchResult> {
         if (isSpawnedByPlanner(this.opts.env)) {
             // The env we are about to hand the agent already carries the marker, so this
             // CLI is running inside an agent the planner spawned. Refuse rather than
@@ -299,25 +319,44 @@ export abstract class BaseLauncher implements AgentLauncher {
         const args = this.buildArgs(request.message, request.permissionMode, request.interactive);
         const stdio: StdioOptions = request.interactive ? "inherit" : ["ignore", "inherit", "inherit"];
 
-        return new Promise<number | undefined>((resolve) => {
-            const proc = spawn(this.command, args, {
+        return new Promise<LaunchResult>((resolve) => {
+            const attempt = trySpawn(this.command, args, {
                 cwd: this.opts.cwd,
                 env: this.spawnEnv(request.env),
                 stdio,
             });
+            if (!attempt.started) {
+                // Nothing to watch and nothing to stop: there is no process. The run
+                // continues without the handoff rather than dying on the errno.
+                this.reportLaunchFailure(attempt.error);
+                resolve({ started: false, exitCode: undefined });
+                return;
+            }
+
+            const proc = attempt.proc;
             const stopWatching = request.watch?.(proc) ?? (() => {});
             proc.on("error", (err: Error) => {
-                debugLog(`${this.label} failed to spawn`, { err });
-                p.log.error(`Couldn't launch ${this.label}: ${err.message}`);
+                this.reportLaunchFailure(err);
                 stopWatching();
-                resolve(undefined);
+                resolve({ started: false, exitCode: undefined });
             });
             proc.on("close", (code) => {
                 debugLog(`${this.label} exited`, { code });
                 stopWatching();
-                resolve(code ?? undefined);
+                resolve({ started: true, exitCode: code ?? undefined });
             });
         });
+    }
+
+    /**
+     * Say why the agent never started, in the same words on both the paths a spawn can
+     * fail by. The raw text is an errno, so it goes through the same restatement the
+     * client's own subcommands get - "could not be run", and what to do about it.
+     */
+    private reportLaunchFailure(err: Error): void {
+        debugLog(`${this.label} failed to spawn`, { err });
+        captureLog("error", "Coding agent failed to spawn", { source: "coding_agent", agent: this.id });
+        p.log.error(`Couldn't launch ${this.label}: ${explainFailureReason(err.message, this.label)}`);
     }
 
     /**
@@ -337,12 +376,18 @@ export abstract class BaseLauncher implements AgentLauncher {
     protected runCommand(args: string[]): Promise<CommandResult> {
         debugLog(`Running ${this.command} ${args[0] ?? ""}`, { args });
         return new Promise<CommandResult>((resolve) => {
-            const proc = spawn(this.command, args, {
+            const attempt = trySpawn(this.command, args, {
                 cwd: this.opts.cwd,
                 env: this.opts.env,
                 stdio: ["ignore", "pipe", "pipe"],
                 timeout: MCP_COMMAND_TIMEOUT_MS,
             });
+            if (!attempt.started) {
+                resolve({ code: undefined, stdout: "", stderr: attempt.error.message });
+                return;
+            }
+
+            const proc = attempt.proc;
             let stdout = "";
             let stderr = "";
             proc.stdout?.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
@@ -456,11 +501,17 @@ export abstract class BaseLauncher implements AgentLauncher {
     protected runAttached(args: string[]): Promise<AttachedResult> {
         debugLog(`Running ${this.command} ${args.join(" ")} attached`);
         return new Promise<AttachedResult>((resolve) => {
-            const proc = spawn(this.command, args, {
+            const attempt = trySpawn(this.command, args, {
                 cwd: this.opts.cwd,
                 env: this.opts.env,
                 stdio: ["inherit", "inherit", "pipe"],
             });
+            if (!attempt.started) {
+                resolve({ code: undefined, stderr: attempt.error.message });
+                return;
+            }
+
+            const proc = attempt.proc;
             let stderr = "";
             proc.stderr?.on("data", (chunk: Buffer) => {
                 process.stderr.write(chunk);
@@ -835,7 +886,22 @@ function isClientNotExecutable(output: string): boolean {
 /** Restate a raw failure reason as the thing that is actually wrong. */
 function explainFailureReason(reason: string, label: string): string {
     if (!isClientNotExecutable(reason)) return reason;
-    return `${label} is on your PATH but could not be run (${reason}). Reinstall it, then run again.`;
+    return `${label} is on your PATH but could not be run (${reason}). ${remedyFor(reason)}`;
+}
+
+/**
+ * What to do about a binary that would not run, which is not one answer. A missing or
+ * broken install is repaired by reinstalling; a refused one is a policy decision on the
+ * machine, and reinstalling only produces the same refusal again.
+ */
+function remedyFor(reason: string): string {
+    if (EXECUTION_REFUSED_PATTERNS.some((pattern) => pattern.test(reason))) {
+        return (
+            "Your system refused to execute it - check antivirus, endpoint security, or an execution " +
+            "policy that blocks it, then run again."
+        );
+    }
+    return "Reinstall it, then run again.";
 }
 
 /**

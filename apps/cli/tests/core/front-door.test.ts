@@ -30,7 +30,7 @@ function launcher(id: string, available: boolean): AgentLauncher {
         label: `Agent ${id}`,
         isAvailable: () => Promise.resolve(available),
         registerMcpServer: () => Promise.resolve({ env: {} }),
-        launch: () => Promise.resolve(0),
+        launch: () => Promise.resolve({ started: true, exitCode: 0 }),
     };
 }
 

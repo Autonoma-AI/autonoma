@@ -62,7 +62,7 @@ function fakeLauncher(registrationEnv: Record<string, string> = {}): FakeLaunche
             },
             launch: (request) => {
                 launches.push(request);
-                return Promise.resolve(0);
+                return Promise.resolve({ started: true, exitCode: 0 });
             },
         },
     };

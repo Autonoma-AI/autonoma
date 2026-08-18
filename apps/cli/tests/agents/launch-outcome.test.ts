@@ -29,10 +29,43 @@ describe("describeLaunchOutcome", () => {
         expect(describeLaunchOutcome(launch({ exitCode: 0, durationMs: 29_000 })).kind).toBe("ran");
     });
 
-    // An agent that could not be spawned at all reports no code; there is nothing to
-    // distinguish it from a crash, so it is left to the recipe diagnosis.
+    // An absent exit code is what a signalled agent reports too - most often the
+    // completion watcher terminating one that finished - so on its own it says nothing.
+    // `started` is the field that separates the two, exercised below.
     test("an unknown exit code is not read as a failure to start", () => {
         expect(describeLaunchOutcome(launch({ exitCode: undefined, durationMs: 100 })).kind).toBe("ran");
+    });
+
+    // A machine that refuses to execute the binary produces no process and no code. It
+    // has to reach the same branch an instant bad exit does, because the recovery there
+    // is to move to a different agent - the one thing that can still work.
+    test("a launch that never produced a process is a failure to start", () => {
+        const outcome = describeLaunchOutcome(launch({ started: false, exitCode: undefined, durationMs: 4 }));
+
+        expect(outcome.kind).toBe("failed-to-start");
+        if (outcome.kind !== "failed-to-start") return;
+        expect(outcome.summary).toMatch(/Claude Code could not be started on this machine/);
+    });
+
+    // The timing heuristic exists to guess whether work happened. Nothing to guess here.
+    test("a launch that never started stays one however long it took to find out", () => {
+        const slow = launch({ started: false, exitCode: undefined, durationMs: 20 * 60_000 });
+
+        expect(describeLaunchOutcome(slow).kind).toBe("failed-to-start");
+    });
+
+    // Written before `started` existed, and read back by `--resume`. Every launch that
+    // got as far as being recorded then had started, so absent must keep meaning that -
+    // this is the never-started record with only that field removed, and it must flip.
+    test("state persisted without the field still reads as a session that ran", () => {
+        const legacy: AgentLaunch = {
+            agentLabel: "Claude Code",
+            agentId: "claude",
+            exitCode: undefined,
+            durationMs: 4,
+        };
+
+        expect(describeLaunchOutcome(legacy).kind).toBe("ran");
     });
 });
 
