@@ -40,6 +40,10 @@ await ledger.priorReports({ excludeSnapshotId, limit });
 
 // A test's verdict history across the application's analyses (the classifier's baseline evidence):
 await store.priorRuns({ applicationId, testSlug, currentSnapshotId });
+
+// One finding with its full classification history (the checkpoint drawer's read; addressed by finding
+// id because the caller starts from a URL param and learns the snapshot from the row):
+await store.findingDetail(findingId, { organizationId });
 ```
 
 ## Invariants the module holds

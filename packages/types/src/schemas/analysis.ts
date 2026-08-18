@@ -760,6 +760,20 @@ export type AnalysisReportData = z.infer<typeof analysisReportDataSchema>;
 export const generationStatusSchema = z.enum(["pending", "queued", "running", "success", "failed"]);
 export type GenerationStatus = z.infer<typeof generationStatusSchema>;
 
+const TERMINAL_GENERATION_STATUSES: ReadonlySet<GenerationStatus> = new Set(["success", "failed"]);
+
+/** Whether a generation has finished running - successfully or not - as opposed to being queued or in flight. */
+export function isTerminalGenerationStatus(status: GenerationStatus): boolean {
+    return TERMINAL_GENERATION_STATUSES.has(status);
+}
+
+/**
+ * What this PR did to a test's plan, as the checkpoint page displays it: authored it (`created`), rewrote it
+ * (`edited`), or deleted it (`removed`). Derived from the snapshot's suite changes, never stored.
+ */
+export const analysisSuiteChangeKindSchema = z.enum(["created", "edited", "removed"]);
+export type AnalysisSuiteChangeKind = z.infer<typeof analysisSuiteChangeKindSchema>;
+
 /**
  * One test's row in the live checkpoint view, keyed on the finding - never the generation, so a self-heal's extra
  * generations do not split a test into two rows.
@@ -779,12 +793,31 @@ export const analysisRunFindingSchema = z.object({
     verdict: z.object({ category: z.string(), headline: z.string() }).optional(),
     /** The investigation crashed without judging a run (an `investigator_crashed` containment). */
     contained: z.boolean(),
+    /** What this PR did to the test's plan; absent when the PR left it untouched. */
+    change: analysisSuiteChangeKindSchema.optional(),
+    /** When the test's latest generation started; absent before any generation exists for it. */
+    startedAt: z.date().optional(),
+    /** When that generation reached a terminal status; absent while it is still running. */
+    completedAt: z.date().optional(),
 });
 export type AnalysisRunFinding = z.infer<typeof analysisRunFindingSchema>;
+
+/**
+ * A test this PR removed that the run never selected - it has no finding, so its row is a stub: the identity and
+ * the deleted plan are all there is to show.
+ */
+export const analysisRunRemovedTestSchema = z.object({
+    testCase: z.object({ id: z.string(), name: z.string(), slug: z.string() }),
+    previousPlan: z.string(),
+});
+export type AnalysisRunRemovedTest = z.infer<typeof analysisRunRemovedTestSchema>;
 
 /** The live run view for the checkpoint page: findings with their per-test status, plus the selection summary. */
 export const analysisRunViewSchema = z.object({
     findings: z.array(analysisRunFindingSchema),
+    /** Tests the PR removed that have no finding of their own; a removed test that WAS judged (`invalid_test`)
+     * stays in `findings`. */
+    removedTests: z.array(analysisRunRemovedTestSchema),
     /** The selection summary - `N targets · M affected · K proposed`. */
     selection: z.object({
         targetCount: z.number().int().nonnegative(),

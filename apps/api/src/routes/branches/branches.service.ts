@@ -56,7 +56,8 @@ import { env } from "../../env";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
 import type { PullRequestCacheService } from "../../github/pull-request-cache.service";
 import { Service } from "../service";
-import { buildAnalysisRunView, loadLatestGenerationStatuses } from "./analysis-run";
+import { type AnalysisFindingDetailView, loadAnalysisFindingDetail } from "./analysis-finding-detail";
+import { buildAnalysisRunView, loadLatestGenerations } from "./analysis-run";
 import { presentCheckpoint } from "./checkpoint-presentation";
 import { loadCreatedTests, type SnapshotCreatedTest } from "./created-tests";
 import { loadMainOpenProblems } from "./main-open-problems";
@@ -355,12 +356,15 @@ export class BranchesService extends Service {
             if (lifecycle == null) return null;
 
             const findings = await this.analysisStore.forAnalysis(snapshotId).findings();
-            const statuses = await loadLatestGenerationStatuses(
-                this.db,
-                snapshotId,
-                findings.map((finding) => finding.testCase.id),
-            );
-            const view = buildAnalysisRunView(findings, statuses);
+            const [generations, suiteChanges] = await Promise.all([
+                loadLatestGenerations(
+                    this.db,
+                    snapshotId,
+                    findings.map((finding) => finding.testCase.id),
+                ),
+                this.suite.changesSince(snapshotId),
+            ]);
+            const view = buildAnalysisRunView(findings, generations, suiteChanges);
             this.logger.info("Analysis run assembled", {
                 extra: { snapshotId, findingCount: view.findings.length },
             });
@@ -368,6 +372,51 @@ export class BranchesService extends Service {
         } catch (error) {
             this.logger.warn("Could not load analysis run; treating as absent", {
                 extra: { snapshotId },
+                err: error,
+            });
+            return null;
+        }
+    }
+
+    /**
+     * One finding in full for the checkpoint drawer: identity, iteration history, the selected iteration's
+     * verdict story, the generation behind it (live steps included), and the plan with the PR's change to it.
+     * Served mid-run - a queued or running test answers with whatever exists so far. Org-scoped; `null` for an
+     * unknown/foreign finding or an unknown iteration, and degrades to `null` on any failure like the other
+     * analysis reads.
+     */
+    async getAnalysisFindingDetail(
+        findingId: string,
+        organizationId: string,
+        options: { iteration?: number; isAdmin: boolean },
+    ): Promise<AnalysisFindingDetailView | null> {
+        this.logger.info("Getting analysis finding detail", {
+            extra: { findingId, iteration: options.iteration },
+        });
+        try {
+            const view = await loadAnalysisFindingDetail(
+                {
+                    db: this.db,
+                    storage: this.storageProvider,
+                    suite: this.suite,
+                    analysisStore: this.analysisStore,
+                    logger: this.logger,
+                },
+                {
+                    findingId,
+                    organizationId,
+                    iteration: options.iteration,
+                    isAdmin: options.isAdmin,
+                },
+            );
+            if (view == null) return null;
+            this.logger.info("Analysis finding detail assembled", {
+                extra: { findingId, stepCount: view.generation?.steps.length ?? 0 },
+            });
+            return view;
+        } catch (error) {
+            this.logger.warn("Could not load analysis finding detail; treating as absent", {
+                extra: { findingId },
                 err: error,
             });
             return null;

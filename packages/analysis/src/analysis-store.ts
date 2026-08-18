@@ -4,6 +4,7 @@ import { Analysis } from "./analysis";
 import { ApplicationAnalysisFacts } from "./application-analysis";
 import { BranchLedger } from "./branch-ledger";
 import { type PriorRunsHistory, type PriorRunsQuery, readPriorRuns } from "./queries/prior-runs";
+import { type FindingDetailRecord, readFindingDetail } from "./queries/read-finding-detail";
 import { type Issue, readIssues } from "./queries/read-issues";
 import { type AnalysisLifecycleSummary, readLifecycles } from "./queries/read-lifecycle";
 
@@ -56,6 +57,18 @@ export class AnalysisStore {
 
     public forApplication(applicationId: string, organizationId: string): ApplicationAnalysisFacts {
         return new ApplicationAnalysisFacts(this.db, applicationId, organizationId);
+    }
+
+    /**
+     * One finding by id with its full classification history, org-scoped in the where. Addressed by finding id
+     * rather than through {@link forAnalysis} because the caller (the per-finding detail read) starts from a URL
+     * param and learns the snapshot from the row. Undefined for an unknown or foreign finding.
+     */
+    public async findingDetail(
+        findingId: string,
+        options: { organizationId: string },
+    ): Promise<FindingDetailRecord | undefined> {
+        return readFindingDetail(this.db, { findingId, organizationId: options.organizationId });
     }
 
     /** One issue by id, org-scoped in the where. Undefined for an unknown, foreign or malformed row. */

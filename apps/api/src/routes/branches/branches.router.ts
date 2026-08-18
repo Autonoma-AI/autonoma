@@ -94,6 +94,19 @@ export const branchesRouter = router({
             services.branches.getAnalysisRun(input.snapshotId, organizationId),
         ),
 
+    // One finding in full for the checkpoint drawer: iteration history, the selected iteration's verdict story,
+    // the generation behind it with live-persisted steps, and the plan with the PR's change to it. Served
+    // mid-run and pollable; `iteration` selects an earlier self-heal attempt. User-facing; debug/observability
+    // fields are admin-only and gated server-side.
+    analysisFindingDetail: protectedProcedure
+        .input(z.object({ findingId: z.string(), iteration: z.number().int().positive().optional() }))
+        .query(({ ctx: { services, organizationId, user }, input }) =>
+            services.branches.getAnalysisFindingDetail(input.findingId, organizationId, {
+                iteration: input.iteration,
+                isAdmin: user.role === "admin",
+            }),
+        ),
+
     // The branch's analysis issues (all statuses, branch-scoped) for the PR page: the open ones drive the
     // issues-first list, and resolved ones let the report prose's `issue:` tokens link them. User-facing; returns
     // an empty list for a branch with no issues (or a diffs branch).
