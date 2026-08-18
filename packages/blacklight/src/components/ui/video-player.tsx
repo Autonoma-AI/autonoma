@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useRef, useState } from "react";
+import { useStableSignedUrl } from "../../lib/use-stable-signed-url";
 import { cn } from "../../lib/utils";
 import { Button } from "./button";
 
@@ -51,7 +52,10 @@ export function VideoPlayer({
   actions,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const hasOptimized = optimizedSrc != null;
+  // Pin the signed URLs so a re-sign (same asset, new query string) does not remount the <video> via its key.
+  const stableSrc = useStableSignedUrl(src);
+  const stableOptimizedSrc = useStableSignedUrl(optimizedSrc);
+  const hasOptimized = stableOptimizedSrc != null;
   const [mode, setMode] = useState<Mode>(hasOptimized ? "optimized" : "original");
   const [speed, setSpeed] = useState(hasOptimized ? optimizedRate : originalRate);
 
@@ -67,7 +71,7 @@ export function VideoPlayer({
     setSpeed(next === "optimized" ? optimizedRate : originalRate);
   };
 
-  const currentSrc = mode === "optimized" && optimizedSrc != null ? optimizedSrc : src;
+  const currentSrc = mode === "optimized" && stableOptimizedSrc != null ? stableOptimizedSrc : stableSrc;
 
   // Selected controls read as a quiet lime outline rather than a bright filled pill, so the video stays the
   // focus; unselected controls fade to the muted border/text.

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useStableSignedUrl } from "../../lib/use-stable-signed-url";
 import { cn } from "../../lib/utils";
 
 interface Point {
@@ -193,10 +194,12 @@ export function ScreenshotWithOverlay({
 }: ScreenshotWithOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlay = useOverlayPositions(containerRef, points ?? [], screenResolution);
+  // Pin the signed src so a re-sign does not re-fetch the frame (and drop the computed overlay) on every poll.
+  const stableSrc = useStableSignedUrl(src);
 
   return (
     <div ref={containerRef} className="relative" onClick={onClick}>
-      <img src={src} alt={alt} className={imgClassName} onLoad={overlay.recalculate} />
+      <img src={stableSrc} alt={alt} className={imgClassName} onLoad={overlay.recalculate} />
       {overlay.hasPoints && (
         <PointMarkers
           points={points ?? []}

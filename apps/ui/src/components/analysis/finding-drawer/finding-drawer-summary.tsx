@@ -1,4 +1,4 @@
-import { Skeleton, VideoPlayer, cn } from "@autonoma/blacklight";
+import { Skeleton, StableImage, VideoPlayer, cn } from "@autonoma/blacklight";
 import {
   ClassificationErrorBlock,
   ObservedAppIssuesNote,
@@ -98,14 +98,14 @@ function MediaPanel({
 /**
  * The classifier's key frame in a fixed `aspect-video` frame: the space is reserved up front and a pulsing skeleton
  * fills it until the image decodes, so the panel does not jump when the media (or a Recording/Key frame toggle)
- * loads.
+ * loads. Uses {@link StableImage} so a re-signed URL from polling does not reload the frame.
  */
 function KeyFrameImage({ src, alt }: { src: string; alt: string }) {
   const [loaded, setLoaded] = useState(false);
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-border-dim bg-surface-void">
       {!loaded && <Skeleton className="absolute inset-0 size-full rounded-none" />}
-      <img
+      <StableImage
         src={src}
         alt={alt}
         onLoad={() => setLoaded(true)}

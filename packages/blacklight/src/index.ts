@@ -22,6 +22,8 @@ export {
 } from "./components/ui/braille-spinner";
 export { Button, buttonVariants } from "./components/ui/button";
 export { VideoPlayer, type VideoPlayerProps } from "./components/ui/video-player";
+export { StableImage, type StableImageProps } from "./components/ui/stable-image";
+export { useStableSignedUrl } from "./lib/use-stable-signed-url";
 export {
     Card,
     CardHeader,
