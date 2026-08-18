@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.260818.2](https://github.com/Autonoma-AI/agent/compare/v1.260818.1...v1.260818.2) (2026-08-18)
+
+
+### Features
+
+* **previewkit:** seal secrets against the app row and enforce the app foreign keys ([#2608](https://github.com/Autonoma-AI/agent/issues/2608)) ([ca5e86d](https://github.com/Autonoma-AI/agent/commit/ca5e86d5cbc750c4c4029480d88f299d8428cba2))
+* **terraform:** import the EKS cluster security groups ([#2607](https://github.com/Autonoma-AI/agent/issues/2607)) ([d84e36c](https://github.com/Autonoma-AI/agent/commit/d84e36ce3c29b6ae34b6d786002b40754bc2d7be))
+
 ## [1.260818.1](https://github.com/Autonoma-AI/agent/compare/v1.260814.4...v1.260818.1) (2026-08-18)
 
 
