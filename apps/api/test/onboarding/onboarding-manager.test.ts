@@ -2764,11 +2764,9 @@ async function seedSecret(harness: OnboardingTestHarness, applicationId: string)
     const webAppId = (await harness.seedTopology(applicationId, ["web"])).get("web")!;
     await harness.db.previewkitSecret.create({
         data: {
-            applicationId,
-            appName: "web",
             appId: webAppId,
             key: "AUTONOMA_SHARED_SECRET",
-            envelope: "v1.test-key.placeholder",
+            envelope: "v2.test-key.placeholder",
             encryptionKeyId: "test-key",
             fingerprint: "fingerprint",
             maskedLength: 32,

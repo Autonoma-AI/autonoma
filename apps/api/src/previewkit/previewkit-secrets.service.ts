@@ -11,8 +11,8 @@ import type { PreviewkitSecretsUpsertResult } from "../routes/onboarding/onboard
  * `/v1/previewkit/secrets/*` routes so external tooling (CI, scripts) can manage
  * secrets directly.
  *
- * Each `(applicationId, appName)` pair is one bundle: the set of `previewkit_secret`
- * rows sharing that scope, one per key, each sealed under the environment's
+ * Each `(applicationId, appName)` pair addresses one bundle: the `previewkit_secret`
+ * rows hanging off that app, one per key, each sealed under the environment's
  * encryption key. There is no bundle row, so a bundle exists exactly as long as it
  * holds a key. The runtime materializer writes those values into the K8s Secret a
  * preview's pods mount on the next deploy.

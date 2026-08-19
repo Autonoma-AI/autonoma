@@ -423,7 +423,6 @@ model Application {
   mainBranchInfo           MainBranchInfo?
   onboardingState          OnboardingState?
   applicationSetups        ApplicationSetup[]
-  previewkitSecrets        PreviewkitSecret[]
   vercelProjectConnections VercelProjectConnection[]
 
   // The Application's preview config (latest-only; saving overwrites it in
@@ -2171,31 +2170,23 @@ model PreviewkitEncryptionKey {
 }
 
 // One secret an app's preview runs with: an environment variable and its sealed
-// value. There is no bundle row - a "bundle" is just the set of rows sharing
-// (applicationId, appName), so an app with no secrets has no rows rather than an
-// empty parent.
+// value. There is no bundle row - a "bundle" is just the set of rows sharing an
+// appId, so an app with no secrets has no rows rather than an empty parent.
 model PreviewkitSecret {
-  id              String  @id @default(cuid())
+  id              String @id @default(cuid())
   /// The app this value belongs to, and the only thing that identifies it.
   /// Deleting the app takes this row with it.
-  appId           String  @map("app_id")
-  /// Vestigial. Nothing reads or writes these two: a `v2` envelope is sealed
-  /// under (kind, appId, key), so neither is authenticated data any more and
-  /// both are derivable from `app`. Nullable so the writers could stop filling
-  /// them in before the columns come off; the next migration drops them.
-  applicationId   String? @map("application_id")
-  appName         String? @map("app_name")
+  appId           String @map("app_id")
   /// The environment variable name, e.g. DATABASE_URL. Not a cryptographic key.
   key             String
   envelope        String
   /// Which encryption key sealed `envelope`. Restrict, not Cascade: a key must
   /// not be deletable while any value still needs it to be readable.
-  encryptionKeyId String  @map("encryption_key_id")
+  encryptionKeyId String @map("encryption_key_id")
   /// Non-reversible SHA-256 prefix, for equality checks without the value.
   fingerprint     String
-  maskedLength    Int     @map("masked_length")
+  maskedLength    Int    @map("masked_length")
 
-  application   Application?            @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   app           PreviewkitApp           @relation(fields: [appId], references: [id], onDelete: Cascade)
   encryptionKey PreviewkitEncryptionKey @relation(fields: [encryptionKeyId], references: [id], onDelete: Restrict)
 
@@ -2203,8 +2194,6 @@ model PreviewkitSecret {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([appId, key])
-  @@unique([applicationId, appName, key])
-  @@index([applicationId])
   @@index([encryptionKeyId])
   @@map("previewkit_secret")
 }

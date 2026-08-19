@@ -60,9 +60,10 @@ function isAlreadySealed(current: SealedState | undefined, item: SecretItem, pri
  * Writes previewkit secret values into Postgres, sealed with the current
  * encryption key.
  *
- * A bundle is not a row - it is the set of rows sharing a scope, either
- * `(applicationId, appName)` or `(organizationId, name)`. A bundle holding no keys
- * therefore has no rows, and "registered but empty" is not a representable state.
+ * A bundle is not a row - it is the set of rows hanging off one app. Callers
+ * address one as `(applicationId, appName)`, which resolves to that app row; the
+ * rows themselves share only its id. A bundle holding no keys therefore has no
+ * rows, and "registered but empty" is not a representable state.
  *
  * Rows carry `fingerprint` and `maskedLength` alongside the envelope, computed
  * here at seal time. That is deliberate: listing a bundle needs key names and an

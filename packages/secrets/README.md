@@ -110,12 +110,17 @@ The `[]` is only safe because Postgres is the only store: there is no un-migrate
 
 ### One table per scope
 
-There used to be a bundle row (`previewkit_secret`, one per app) plus a value row per key. The bundle existed only to hold `awsSecretArn` and to answer "is this registered"; once the ARN was dropped, all it held was `(applicationId, appName)` - which the value rows carry themselves. The value tables were folded into their parents and took the parents' names:
+There used to be a bundle row (`previewkit_secret`, one per app) plus a value row per key. The bundle existed only to hold `awsSecretArn` and to answer "is this registered"; once the ARN was dropped, all it held was a pointer the value rows already carried. The value tables were folded into their parents and took the parents' names:
 
 ```prisma
-PreviewkitSecret { applicationId, appName, key, envelope, encryptionKeyId, fingerprint, maskedLength }
-@@unique([applicationId, appName, key])
+PreviewkitSecret { appId, key, envelope, encryptionKeyId, fingerprint, maskedLength }
+@@unique([appId, key])
 ```
+
+The row named its app by `(applicationId, appName)` until those became the app row's
+job. `appId` is the whole of its identity now: the name lives on `PreviewkitApp`,
+where renaming it costs nothing, and the application is reached through
+`app.config`.
 
 `PreviewkitSecret` now means one secret, which is what the word means everywhere else - in the API contract (`SecretItem`), in the UI, and in how people talk about them.
 
@@ -125,7 +130,7 @@ Two consequences worth knowing:
 
 **`created` on an upsert is no longer arbitrated by a unique constraint.** It means "the bundle held no keys before this write", read in the same call that computes `changed`, so two writes racing a brand-new bundle can both report it. Onboarding redeploys on `created`, and the duplicate redeploy is superseded by the newer one - cheaper than serializing every secret write to make the flag exact.
 
-Code that wants the bundles rather than the rows asks for `distinct: ["appName"]`. That is the one place the collapse costs something: presence checks that were `findUnique` on a bundle are now scans of an index prefix.
+Code that wants the bundles rather than the rows asks the topology which apps hold any - `previewkitApp` where `secrets: { some: {} }` - because a bundle is an app, and the rows underneath it no longer carry a name to group by.
 
 ### What the backfill left behind
 
