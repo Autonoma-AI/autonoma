@@ -224,11 +224,6 @@ declare global {
          * classifications is a contained investigation.
          */
         export type AnalysisFindingFailure = { kind: "investigator_crashed"; message: string };
-        /**
-         * Why a `Run` ended in `status == failed`. System variants carry a
-         * message; `replay_failed` is the agent-reported replay outcome.
-         */
-        export type RunFailure = SystemFailure | { kind: "replay_failed" };
 
         /** The agent activity stream on `OnboardingState.agentLogs` (plain lines + tool calls). */
         export type AgentLogs = z.infer<typeof AgentLogEntrySchema>[];

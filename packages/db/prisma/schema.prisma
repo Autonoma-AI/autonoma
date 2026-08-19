@@ -144,13 +144,10 @@ model Organization {
   stepOutputs             StepOutput[]
   stepAttempts            StepAttempt[]
   tags                    Tag[]
-  runs                    Run[]
   scenarios               Scenario[]
   scenarioRecipeVersions  ScenarioRecipeVersion[]
   scenarioRecipeEdits     ScenarioRecipeEdit[]
   scenarioInstances       ScenarioInstance[]
-  generationReviews       GenerationReview[]
-  runReviews              RunReview[]
   issues                  Issue[]
   bugs                    Bug[]
   githubInstallation      GitHubInstallation?
@@ -820,24 +817,12 @@ model TestCaseAssignment {
   testCaseId String   @map("test_case_id")
   testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
 
-  planId  String?        @map("plan_id")
-  plan    TestPlan?      @relation(fields: [planId], references: [id])
-  stepsId String?        @map("steps_id")
-  steps   StepInputList? @relation(fields: [stepsId], references: [id])
-
-  // DEPRECATED / UNUSED. The quarantine skip was removed: reported tests now
-  // re-run every snapshot instead of being excluded via this flag. No code reads
-  // or writes this column anymore. It is kept nullable and abandoned in place (no
-  // DROP COLUMN) so existing rows and the foreign key stay untouched.
-  quarantineIssueId String? @map("quarantine_issue_id")
-  quarantineIssue   Issue?  @relation(fields: [quarantineIssueId], references: [id], onDelete: SetNull)
-
-  runs Run[]
+  planId String?   @map("plan_id")
+  plan   TestPlan? @relation(fields: [planId], references: [id])
 
   @@unique([snapshotId, testCaseId])
   @@index([testCaseId])
   @@index([planId])
-  @@index([stepsId])
   @@map("test_case_assignment")
 }
 
@@ -893,7 +878,6 @@ model TestPlan {
   generations TestGeneration[]
   stepLists   StepInputList[]
   assignments TestCaseAssignment[]
-  runs        Run[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -948,10 +932,9 @@ model TestGeneration {
   /// Extracted variables from the agent's memory system
   memory Json @default("{}") @map("memory")
 
-  testPlan         TestPlan          @relation(fields: [testPlanId], references: [id], onDelete: Cascade)
-  costRecords      AiCostRecord[]
-  generationReview GenerationReview?
-  attempts         StepAttempt[]
+  testPlan    TestPlan       @relation(fields: [testPlanId], references: [id], onDelete: Cascade)
+  costRecords AiCostRecord[]
+  attempts    StepAttempt[]
 
   /// The analysis findings whose verdict this run produced. A list rather than one row because a re-filed
   /// containment finding can overwrite in place while an earlier self-heal pass still points here.
@@ -979,73 +962,6 @@ model TestGeneration {
 
 // ─── Generation Review ───────────────────────────────────────────────────────
 
-enum GenerationReviewVerdict {
-  success
-  agent_limitation
-  application_bug
-  plan_mismatch
-  unknown_issue
-  scenario_unsupported
-
-  @@map("generation_review_verdict")
-}
-
-enum RunReviewVerdict {
-  engine_error
-  application_bug
-  unknown_issue
-
-  @@map("run_review_verdict")
-}
-
-enum ReviewStatus {
-  pending
-  completed
-  failed
-
-  @@map("review_status")
-}
-
-model GenerationReview {
-  id           String         @id @default(cuid())
-  generationId String         @unique @map("generation_id")
-  generation   TestGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
-
-  status    ReviewStatus             @default(pending)
-  verdict   GenerationReviewVerdict?
-  reasoning String?                  @db.Text
-  analysis  Json                     @default("{}")
-  issue     Issue?
-
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId])
-  @@map("generation_review")
-}
-
-model RunReview {
-  id    String @id @default(cuid())
-  runId String @unique @map("run_id")
-  run   Run    @relation(fields: [runId], references: [id], onDelete: Cascade)
-
-  status    ReviewStatus      @default(pending)
-  verdict   RunReviewVerdict?
-  reasoning String?           @db.Text
-  analysis  Json              @default("{}")
-  issue     Issue?
-
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId])
-  @@map("run_review")
-}
-
 // ─── Issue ───────────────────────────────────────────────────────────────────
 
 enum IssueSeverity {
@@ -1067,11 +983,7 @@ enum IssueKind {
 }
 
 model Issue {
-  id                 String            @id @default(cuid())
-  generationReviewId String?           @unique @map("review_id")
-  generationReview   GenerationReview? @relation(fields: [generationReviewId], references: [id], onDelete: Cascade)
-  runReviewId        String?           @unique @map("run_review_id")
-  runReview          RunReview?        @relation(fields: [runReviewId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
 
   kind        IssueKind     @default(application_bug)
   severity    IssueSeverity
@@ -1092,8 +1004,6 @@ model Issue {
 
   bugId String? @map("bug_id")
   bug   Bug?    @relation(fields: [bugId], references: [id], onDelete: SetNull)
-
-  quarantinedAssignments TestCaseAssignment[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1180,7 +1090,6 @@ model StepInputList {
   plan   TestPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   generations TestGeneration[]
-  assignments TestCaseAssignment[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1197,10 +1106,9 @@ model StepInput {
   listId String @map("list_id")
   order  Int
 
-  interaction   String
+  interaction String
   /// ![object]
-  params        Json
-  waitCondition String? @map("wait_condition")
+  params      Json
 
   screenshotBefore String? @map("screenshot_before")
   screenshotAfter  String? @map("screenshot_after")
@@ -1224,9 +1132,6 @@ model StepOutputList {
   list StepOutput[]
 
   generation TestGeneration?
-
-  runId String? @unique @map("run_id")
-  run   Run?    @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1352,10 +1257,9 @@ model TestTag {
 model AiCostRecord {
   id                      String  @id @default(cuid())
   generationId            String? @map("generation_id")
-  runId                   String? @map("run_id")
   investigationSnapshotId String? @map("investigation_snapshot_id")
 
-  // Denormalized from whichever of generation/run/investigationSnapshot the row is
+  // Denormalized from whichever of generation/investigationSnapshot the row is
   // tied to (itself resolved through branch -> application) - deliberately, so
   // billing queries never need a multi-hop join to explain a charge. Set once at
   // insert time from the same lookup the caller already did to log/persist the
@@ -1372,7 +1276,6 @@ model AiCostRecord {
   createdAt        DateTime @default(now()) @map("created_at")
 
   generation TestGeneration? @relation(fields: [generationId], references: [id], onDelete: Cascade)
-  run        Run?            @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   // Orchestration LLM spend for an investigation, keyed on its (detached) snapshot.
   // Set for the investigation workflow's select/classify/diagnose/merge calls, which
@@ -1380,62 +1283,9 @@ model AiCostRecord {
   investigationSnapshot BranchSnapshot? @relation("InvestigationAiCost", fields: [investigationSnapshotId], references: [id], onDelete: Cascade)
 
   @@index([generationId])
-  @@index([runId])
   @@index([investigationSnapshotId])
   @@index([organizationId])
   @@map("ai_cost_record")
-}
-
-// ─── Run Execution ─────────────────────────────────────────────────
-
-enum RunStatus {
-  pending
-  running
-  success
-  failed
-
-  @@map("run_status")
-}
-
-model Run {
-  id          String    @id @default(cuid())
-  status      RunStatus @default(pending)
-  startedAt   DateTime? @map("started_at")
-  completedAt DateTime? @map("completed_at")
-
-  assignmentId String             @map("assignment_id")
-  assignment   TestCaseAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-
-  /// Snapshot of the plan this run executed. Captured at run creation time so it
-  /// survives later mutations to TestCaseAssignment.planId via updatePlan.
-  planId String?   @map("plan_id")
-  plan   TestPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
-
-  scenarioInstanceId String?           @map("scenario_instance_id")
-  scenarioInstance   ScenarioInstance? @relation(fields: [scenarioInstanceId], references: [id], onDelete: SetNull)
-
-  outputs     StepOutputList?
-  runReview   RunReview?
-  costRecords AiCostRecord[]
-
-  reasoning String? @map("reasoning") @db.Text
-
-  /// Structured failure detail. Set iff status == failed (for rows created
-  /// after this column existed; historical failed rows have null). System
-  /// failures (scenario_setup, engine_error) carry a message and render in the
-  /// critical failure panel; replay_failed renders via the agent UI.
-  /// [RunFailure]
-  failure Json? @map("failure")
-
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([assignmentId])
-  @@index([planId])
-  @@index([organizationId])
-  @@map("run")
 }
 
 // ─── Scenario Setup/Teardown ──────────────────────────────────────
@@ -1634,7 +1484,6 @@ model ScenarioInstance {
   scenario        Scenario         @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
   webhookCalls    WebhookCall[]
   testGenerations TestGeneration[]
-  runs            Run[]
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
   organizationId  String           @map("organization_id")

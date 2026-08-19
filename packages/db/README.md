@@ -55,7 +55,7 @@ applyMigrations(connectionString, true); // verbose = true for stdout
 All generated Prisma types and enums are re-exported from the package root:
 
 ```ts
-import { type User, ApplicationArchitecture, RunStatus } from "@autonoma/db";
+import { type User, ApplicationArchitecture, GenerationStatus } from "@autonoma/db";
 ```
 
 ## Commands

@@ -24,9 +24,9 @@ const TITLES: Record<SystemFailureKind, string> = {
 };
 
 /**
- * Narrows a generation/run `failure` union down to its system variants so the
- * caller can render the critical panel. Generic so it works for both
- * `GenerationFailure` and `RunFailure` without naming either.
+ * Narrows a generation `failure` union down to its system variants so the
+ * caller can render the critical panel. Generic so it works for any
+ * `{ kind }` failure union without naming `GenerationFailure`.
  */
 export function isSystemFailure<T extends { kind: string }>(
   failure: T | null | undefined,
@@ -35,7 +35,7 @@ export function isSystemFailure<T extends { kind: string }>(
 }
 
 /**
- * Critical-styled panel shown in the main content area when a generation or run
+ * Critical-styled panel shown in the main content area when a generation
  * failed at the system level. Replaces the generic "No steps recorded" void.
  */
 export function SystemFailurePanel({ failure }: { failure: SystemFailure }) {
