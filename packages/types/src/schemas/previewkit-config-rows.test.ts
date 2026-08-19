@@ -109,6 +109,7 @@ const MINIMAL = {
 const SCHEMA_FIELDS = {
     top: ["version", "domain", "registry", "repositories", "branch_convention", "apps", "services", "hooks"],
     app: [
+        "id",
         "name",
         "repository",
         "path",

@@ -492,6 +492,27 @@ export function useSavePreviewkitConfig() {
     });
 }
 
+/**
+ * Applies renames before the document write that follows it.
+ *
+ * Separate from {@link useSavePreviewkitConfig} on purpose: the document save also
+ * resolves the primary repository and rejects a retired build preset, and folding
+ * the topology write into the operation list would lose both. Two calls cost a
+ * round trip; the alternative costs a rename the server cannot see, which deletes
+ * the app.
+ */
+export function useApplyPreviewkitOperations() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.onboarding.applyPreviewkitOperations.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getPreviewkitConfig.queryKey() });
+            },
+        }),
+        errorToast: { title: "Failed to rename the app" },
+    });
+}
+
 export function useDeploymentSignalStatus(applicationId: string) {
     return useQuery(
         trpc.onboarding.getDeploymentSignalStatus.queryOptions(

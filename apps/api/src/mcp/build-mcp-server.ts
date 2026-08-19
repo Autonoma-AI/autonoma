@@ -11,6 +11,7 @@ import { type McpSurface, surfaceGuidance } from "./mcp-surface";
 import { registerOnboardingTools } from "./onboarding-tools";
 import { registerReadTools } from "./read-tools";
 import { registerRecipeTools } from "./recipe-tools";
+import { registerRenameAppTool } from "./rename-app-tool";
 import { resolveDebugTarget } from "./resolve-debug-target";
 import { type McpTargetInput, resolveMcpTarget } from "./resolve-mcp-target";
 import { createWriteGuard } from "./write-guard";
@@ -73,6 +74,7 @@ export function buildMcpServer(surface: McpSurface, deps: BuildMcpServerDeps): M
 
     registerReadTools(server, { services, analytics, resolveTarget });
     registerApplyConfigTool(server, { services, analytics, resolveTarget, guard });
+    registerRenameAppTool(server, { services, analytics, resolveTarget, guard });
     registerRecipeTools(server, { services, analytics, resolveTarget, guard, userId: principal.userId });
     registerInstructionsTools(server, { services, analytics, resolveTarget, guard });
 

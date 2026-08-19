@@ -1,6 +1,7 @@
 import {
     authoringPreviewConfigSchema,
     previewConfigSchema,
+    trustedPreviewConfigSchema,
     validatePreviewConfigSemantics,
     zodIssuesToConfigIssues,
 } from "@autonoma/types";
@@ -24,6 +25,8 @@ import {
     withSecretRows,
     type HooksDraft,
     type TopologyRepoInput,
+    emptyAppDraft,
+    renameOperations,
 } from "./topology-draft";
 
 const PRIMARY_REPO = "acme/web";
@@ -592,5 +595,63 @@ describe("fieldIssueSummaries", () => {
         const summaries = fieldIssueSummaries(issues.fieldErrors, broken.apps);
         expect(summaries[0]?.field).toBe("Variables");
         expect(summaries[0]?.tab).toBe("Variables");
+    });
+});
+
+describe("renameOperations", () => {
+    const loaded = trustedPreviewConfigSchema.parse({
+        version: 2,
+        apps: [
+            { id: "pkapp_web", name: "web", repository: "acme/web", path: ".", port: 3000 },
+            { id: "pkapp_api", name: "api", repository: "acme/web", path: "api", port: 4000 },
+        ],
+    });
+
+    function draftApps(names: Array<{ rowId?: string; name: string }>) {
+        return names.map((app, index) => ({
+            ...emptyAppDraft("acme/web", "saved"),
+            id: index,
+            rowId: app.rowId,
+            name: app.name,
+        }));
+    }
+
+    it("emits nothing when no name moved", () => {
+        expect(renameOperations(draftApps([{ rowId: "pkapp_web", name: "web" }]), loaded)).toEqual([]);
+    });
+
+    /** The case the whole operation list exists for. */
+    it("names the row when an app's name changed", () => {
+        expect(renameOperations(draftApps([{ rowId: "pkapp_web", name: "frontend" }]), loaded)).toEqual([
+            { op: "renameApp", appId: "pkapp_web", name: "frontend" },
+        ]);
+    });
+
+    it("says nothing about an app the user just added", () => {
+        expect(renameOperations(draftApps([{ name: "brand-new" }]), loaded)).toEqual([]);
+    });
+
+    /**
+     * Matched by row id, never by name. Matching by name is precisely what cannot
+     * see a rename - here every name in the draft exists in the loaded document,
+     * just on the other app.
+     */
+    it("sees a swap as two renames", () => {
+        const operations = renameOperations(
+            draftApps([
+                { rowId: "pkapp_web", name: "api" },
+                { rowId: "pkapp_api", name: "web" },
+            ]),
+            loaded,
+        );
+
+        expect(operations).toEqual([
+            { op: "renameApp", appId: "pkapp_web", name: "api" },
+            { op: "renameApp", appId: "pkapp_api", name: "web" },
+        ]);
+    });
+
+    it("ignores a row id the loaded document does not know", () => {
+        expect(renameOperations(draftApps([{ rowId: "pkapp_gone", name: "whatever" }]), loaded)).toEqual([]);
     });
 });

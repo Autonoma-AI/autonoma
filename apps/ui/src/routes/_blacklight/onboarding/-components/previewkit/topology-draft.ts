@@ -132,6 +132,17 @@ export type AppBuildMode = "auto" | "dockerfile" | "runtime";
 
 export interface AppDraft {
     id: number;
+    /**
+     * The STORED app row's id, as the server composed it into the document. Absent
+     * on an app the user has just added, which has no row yet.
+     *
+     * `id` above is a local key for React; this is the server's. Keeping it is what
+     * lets a save tell a rename from a replacement: the row is still the same one,
+     * only its name moved. Without it a renamed app is indistinguishable from a new
+     * app, and saving deletes the old one - along with its secrets and build
+     * history, which cascade from the row.
+     */
+    rowId?: string;
     /** `owner/repo` full name of the repository this app builds from (compiles to `apps[].repository`). */
     repository: string;
     name: string;
@@ -532,6 +543,7 @@ function serviceDraftFromConfig(service: PreviewConfig["services"][number]): Ser
 
 function appDraftFromConfig(app: PreviewConfig["apps"][number], origin: AppDraftOrigin): AppDraft {
     const draft = emptyAppDraft(app.repository, origin);
+    draft.rowId = app.id;
     draft.name = app.name;
     draft.path = app.path;
     draft.buildContext = app.build_context ?? "";
@@ -1482,4 +1494,30 @@ export function validateDraftClientSide(compiled: CompiledDocument): DraftIssues
 
     mapIssuesToDraft(validatePreviewConfigSemantics(parsed.data), compiled.indexToDraftId, result);
     return result;
+}
+
+/**
+ * The renames a save has to carry, given the draft and the document it was loaded
+ * from.
+ *
+ * An app is matched by its stored row id, never by name - matching by name is
+ * exactly what cannot see a rename. An app with no `rowId` is new and needs no
+ * rename; one whose name is unchanged needs none either.
+ *
+ * These must be applied BEFORE the document. The document write matches apps by
+ * name, so once the row carries the new name it updates in place; sent the other
+ * way round it finds a name it does not know and deletes the app.
+ */
+export function renameOperations(
+    apps: readonly AppDraft[],
+    loaded: PreviewConfig,
+): Array<{ op: "renameApp"; appId: string; name: string }> {
+    const nameById = new Map(loaded.apps.flatMap((app) => (app.id == null ? [] : [[app.id, app.name] as const])));
+
+    return apps.flatMap((app) => {
+        if (app.rowId == null) return [];
+        const stored = nameById.get(app.rowId);
+        if (stored == null || stored === app.name) return [];
+        return [{ op: "renameApp" as const, appId: app.rowId, name: app.name }];
+    });
 }

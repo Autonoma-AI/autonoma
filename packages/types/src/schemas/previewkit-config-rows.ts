@@ -49,6 +49,12 @@ export interface PreviewkitConfigConnectionRow {
 }
 
 export interface PreviewkitConfigAppRow {
+    /**
+     * Optional because the codec composes whatever it is handed: a stored row always
+     * carries an id, a synthesized one need not, and a document composed without one
+     * simply omits the field.
+     */
+    id?: string;
     position: number;
     name: string;
     repository: string;
@@ -254,6 +260,7 @@ export function previewkitConfigRowValues(config: PreviewConfig): PreviewkitConf
 
 function appFromRow(app: PreviewkitConfigAppRow): Record<string, unknown> {
     return {
+        id: app.id,
         name: app.name,
         repository: app.repository,
         path: app.path,

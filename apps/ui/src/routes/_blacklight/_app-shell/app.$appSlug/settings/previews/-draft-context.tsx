@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useDeletePreviewkitSecret,
   usePreviewkitConfig,
+  useApplyPreviewkitOperations,
   useSavePreviewkitConfig,
   useUpsertPreviewkitSecrets,
 } from "lib/onboarding/onboarding-api";
@@ -31,6 +32,7 @@ import {
   type TopologyDraft,
   diffAppSecrets,
   documentFromDraft,
+  renameOperations,
   validateDraftClientSide,
   draftFromConfig,
   draftWithRepos,
@@ -117,6 +119,7 @@ export function usePreviewDraft(): PreviewDraftValue {
 export function PreviewDraftProvider({ appId, children }: { appId: string; children: ReactNode }) {
   const configQuery = usePreviewkitConfig(appId);
   const saveConfig = useSavePreviewkitConfig();
+  const applyOperations = useApplyPreviewkitOperations();
   const upsertSecrets = useUpsertPreviewkitSecrets();
   const deleteSecret = useDeletePreviewkitSecret();
   const queryClient = useQueryClient();
@@ -204,7 +207,11 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
   // writes them directly and never submits the document - config problems
   // elsewhere (a legacy build block, another app's bad field) cannot block it.
   const secretsOnly = !configDirty && secretChanges.length > 0;
-  const isSaving = saveConfig.isPending || upsertSecrets.isPending || deleteSecret.isPending;
+  // Includes the rename step: it runs BEFORE the document write, so leaving it out
+  // left Save enabled for that whole round trip - and a second click would rename
+  // an app that had already been renamed, then write the document twice.
+  const isSaving =
+    applyOperations.isPending || saveConfig.isPending || upsertSecrets.isPending || deleteSecret.isPending;
   const canSave = isDirty && !isSaving && (secretsOnly || !hasBlockingIssues);
 
   const repoGroups: RepoGroup[] = [
@@ -337,29 +344,48 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     }
 
     const submission = documentFromDraft(draft);
-    saveConfig.mutate(
-      {
-        applicationId: appId,
-        document: authoringPreviewConfigSchema.parse(submission.document),
-        secrets: secretChanges.length > 0 ? secretChanges : undefined,
-      },
-      {
-        onSuccess: () => {
-          setSavedSnapshot(snapshotDocument(submission.document));
-          // What was submitted is now what is saved, so Cancel reverts to here.
-          // Each adopt below refines this with its cleared secret values.
-          baselineDraft.current = structuredClone(draft);
-          // The config save carried the secrets too, so every change in it landed.
-          for (const change of secretChanges) {
-            adoptSecretWrites(
-              change.appName,
-              change.upserts.map((item) => item.key),
-              change.deletes,
-            );
-          }
-          toastManager.add({ type: "success", title: "Preview config saved" });
+
+    // Renames go first and on their own. The document write matches an app by
+    // NAME, so a renamed app it has not been told about reads as a new one and
+    // the old row is deleted - taking the secrets and build history that cascade
+    // from it. Renaming the row first means the document then finds it.
+    const renames = renameOperations(draft.apps, configQuery.data.document);
+    const writeDocument = () =>
+      saveConfig.mutate(
+        {
+          applicationId: appId,
+          document: authoringPreviewConfigSchema.parse(submission.document),
+          secrets: secretChanges.length > 0 ? secretChanges : undefined,
         },
-      },
+        {
+          onSuccess: () => {
+            setSavedSnapshot(snapshotDocument(submission.document));
+            // What was submitted is now what is saved, so Cancel reverts to here.
+            // Each adopt below refines this with its cleared secret values.
+            baselineDraft.current = structuredClone(draft);
+            // The config save carried the secrets too, so every change in it landed.
+            for (const change of secretChanges) {
+              adoptSecretWrites(
+                change.appName,
+                change.upserts.map((item) => item.key),
+                change.deletes,
+              );
+            }
+            toastManager.add({ type: "success", title: "Preview config saved" });
+          },
+        },
+      );
+
+    if (renames.length === 0) {
+      writeDocument();
+      return;
+    }
+    applyOperations.mutate(
+      { applicationId: appId, operations: renames },
+      // Only on success: a failed rename leaves the row under its old name, and
+      // writing the document then would delete it, which is the whole thing this
+      // ordering exists to prevent.
+      { onSuccess: () => writeDocument() },
     );
   }
 

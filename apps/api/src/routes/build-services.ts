@@ -33,11 +33,12 @@ import { RepoReader } from "../github/repo-reader";
 import { PreviewkitDiagnosisService } from "../previewkit/previewkit-diagnosis.service";
 import { PreviewkitEnvironmentsService } from "../previewkit/previewkit-environments.service";
 import { PreviewkitLogsService } from "../previewkit/previewkit-logs.service";
+import { PreviewkitOperationsService } from "../previewkit/previewkit-operations.service";
 import { PreviewkitSecretStatusService } from "../previewkit/previewkit-secret-status.service";
 import { PreviewkitSecretsService } from "../previewkit/previewkit-secrets.service";
 import { PreviewkitTriggerService } from "../previewkit/previewkit-trigger.service";
 import { PreviewkitWriteService } from "../previewkit/previewkit-write.service";
-import { buildSecretValues } from "../previewkit/secret-store";
+import { buildSecretKeys, buildSecretValues } from "../previewkit/secret-store";
 import { RateLimiterService } from "../rate-limit/rate-limiter.service";
 import { AdminService } from "./admin/admin.service";
 import { ApiKeysService } from "./api-keys/api-keys.service";
@@ -76,6 +77,7 @@ export interface Services {
     folders: FoldersService;
     scenarios: ScenariosService;
     secrets: PreviewkitSecretsService;
+    previewkitOperations: PreviewkitOperationsService;
     previewkitSecretStatus: PreviewkitSecretStatusService;
     previewkitLogs: PreviewkitLogsService;
     github: GitHubInstallationService;
@@ -142,6 +144,7 @@ export function buildServices({
 }: ServicesParams): Services {
     const billingService = createBillingService(conn);
     const secretValues = buildSecretValues(conn);
+    const previewkitOperationsService = new PreviewkitOperationsService(conn, buildSecretKeys(conn));
     const previewkitSecretsService = new PreviewkitSecretsService(conn, secretValues);
     const previewkitEnvironmentsService = new PreviewkitEnvironmentsService(conn);
     // Loki-backed log tails for the MCP get_build_logs / get_app_logs tools.
@@ -220,6 +223,7 @@ export function buildServices({
         folders: new FoldersService(conn),
         scenarios: new ScenariosService(conn, scenarioManager),
         secrets: previewkitSecretsService,
+        previewkitOperations: previewkitOperationsService,
         previewkitSecretStatus: new PreviewkitSecretStatusService(conn, previewkitSecretsService),
         previewkitLogs: new PreviewkitLogsService(previewkitEnvironmentsService, buildLogStore, appLogStore),
         github: githubService,

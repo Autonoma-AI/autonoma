@@ -12,6 +12,7 @@ export {
     useSelectPreviewEnvironmentMode,
     useConfirmExistingDeploysSetup,
     usePreviewkitConfig,
+    useApplyPreviewkitOperations,
     useSavePreviewkitConfig,
     useSetDeployBranch,
     useDeployBranches,

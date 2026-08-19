@@ -616,6 +616,14 @@ const connectionSchema = z.object({
 function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allowCustomResources: boolean) {
     const appSchema = z
         .object({
+            /**
+             * The stored app row's id. READ-ONLY: it is composed into a document that
+             * is read, and ignored in one that is written - a write matches an app by
+             * name, so an id here changes nothing. An editor uses it to notice that an
+             * app it is holding has been renamed rather than replaced, and to name the
+             * row in a `renameApp` operation.
+             */
+            id: z.string().optional(),
             name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
             repository: z
                 .string()

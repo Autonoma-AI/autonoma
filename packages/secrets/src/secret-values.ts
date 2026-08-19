@@ -1,11 +1,9 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { describeSecretBundle, type SecretBundle, scopeFor } from "@autonoma/utils";
+import { sealedSecretRow } from "./sealed-secret-row";
 import { secretFingerprint } from "./secret-fingerprint";
 import type { SecretKeys } from "./secret-keys";
-
-/** How much of a value's length `maskedLength` will admit to, so long values do not leak their size. */
-const MAX_MASKED_LENGTH = 32;
 
 export interface SecretItem {
     key: string;
@@ -129,10 +127,7 @@ export class SecretValues {
 
         const rows = pending.map((item) => ({
             key: item.key,
-            envelope: cipher.encrypt(item.value, scopeFor(appId, item.key)),
-            encryptionKeyId: cipher.keyId,
-            fingerprint: secretFingerprint(item.value),
-            maskedLength: Math.min(item.value.length, MAX_MASKED_LENGTH),
+            ...sealedSecretRow(cipher, appId, item.key, item.value),
         }));
 
         await this.db.$transaction(

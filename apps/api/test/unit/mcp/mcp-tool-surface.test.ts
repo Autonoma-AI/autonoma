@@ -96,7 +96,7 @@ async function toolNamesOn(surface: McpSurface): Promise<string[]> {
  * was never part of it. Keeping them apart means this file still fails on a tool that vanishes,
  * while a tool that arrives is one line here rather than an edit to the promise.
  */
-const TOOLS_ADDED_SINCE_THE_MERGE = ["get_app_instructions", "update_app_instructions"];
+const TOOLS_ADDED_SINCE_THE_MERGE = ["get_app_instructions", "update_app_instructions", "rename_app"];
 
 const EXPECTED_TOOLS = [
     ...new Set([...HISTORICAL_DEBUG_TOOLS, ...HISTORICAL_ONBOARDING_TOOLS, ...TOOLS_ADDED_SINCE_THE_MERGE]),

@@ -1,6 +1,5 @@
 import type { PrismaClient } from "@autonoma/db";
-import { KmsKeyProvider, SecretKeys, SecretValues } from "@autonoma/secrets";
-import { KMSClient } from "@aws-sdk/client-kms";
+import { createKmsSecretKeys, type SecretKeys, SecretValues } from "@autonoma/secrets";
 import { env } from "../env";
 
 /**
@@ -18,8 +17,16 @@ import { env } from "../env";
  * identifies its own key.
  */
 export function buildSecretValues(conn: PrismaClient): SecretValues | undefined {
-    if (env.PREVIEWKIT_SECRETS_CMK == null) return undefined;
+    const keys = buildSecretKeys(conn);
+    return keys == null ? undefined : new SecretValues(conn, keys);
+}
 
-    const kms = new KMSClient({ region: env.AWS_REGION ?? "us-east-1" });
-    return new SecretValues(conn, new SecretKeys(conn, new KmsKeyProvider(kms, env.PREVIEWKIT_SECRETS_CMK)));
+/**
+ * The key resolver behind the store, for callers that seal on their own schedule -
+ * the config operation applier seals inside its transaction, so it needs the keys
+ * rather than the store built over them.
+ */
+export function buildSecretKeys(conn: PrismaClient): SecretKeys | undefined {
+    if (env.PREVIEWKIT_SECRETS_CMK == null) return undefined;
+    return createKmsSecretKeys({ db: conn, cmk: env.PREVIEWKIT_SECRETS_CMK, region: env.AWS_REGION });
 }

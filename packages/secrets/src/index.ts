@@ -6,6 +6,7 @@ export { mintSecretKey, type MintSecretKeyParams } from "./mint-secret-key";
 export { NoPrimaryEncryptionKeyError } from "./no-primary-encryption-key-error";
 export { PreviewSecrets, type PreviewSecretsConfig, type PreviewTarget } from "./preview-secrets";
 export { secretFingerprint } from "./secret-fingerprint";
+export { sealedSecretRow, type SealedSecretRow } from "./sealed-secret-row";
 export { SecretKeys } from "./secret-keys";
 export {
     SecretValues,

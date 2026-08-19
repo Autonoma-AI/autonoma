@@ -5,6 +5,7 @@ import {
     SecretItemSchema,
     UpsertSecretsInputSchema,
     authoringPreviewConfigSchema,
+    previewkitOperationsSchema,
 } from "@autonoma/types";
 import { z } from "zod";
 import { protectedProcedure, router } from "../../trpc";
@@ -212,6 +213,23 @@ export const onboardingRouter = router({
                 input.document,
                 input.secrets,
             ),
+        ),
+
+    /**
+     * The ordered-edit write. `savePreviewkitConfig` above still works and is the
+     * same thing with one operation in it, but only a list can carry a rename - and
+     * a rename that does not arrive as one destroys the app's secrets and history,
+     * because both cascade from the row a document-only write replaces.
+     */
+    applyPreviewkitOperations: onboardingWriteProcedure
+        .input(
+            z.object({
+                applicationId: z.string(),
+                operations: previewkitOperationsSchema,
+            }),
+        )
+        .mutation(({ ctx, input }) =>
+            ctx.services.previewkitOperations.apply(input.applicationId, ctx.organizationId, input.operations),
         ),
 
     getDeploymentSignalStatus: protectedProcedure
