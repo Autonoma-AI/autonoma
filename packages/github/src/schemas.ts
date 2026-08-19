@@ -30,3 +30,12 @@ export const base64PrivateKey = z
 
         return decoded;
     });
+
+/**
+ * Return a GitHub App private key as a PEM: pass an already-decoded PEM through unchanged, otherwise
+ * decode it from base64. For consumers that may receive either form - e.g. one whose env skipped the
+ * {@link base64PrivateKey} transform (under `TESTING`) and still holds the raw base64.
+ */
+export function ensurePem(value: string): string {
+    return value.includes(PEM_BEGIN_MARKER) ? value : Buffer.from(value.trim(), "base64").toString("utf8");
+}

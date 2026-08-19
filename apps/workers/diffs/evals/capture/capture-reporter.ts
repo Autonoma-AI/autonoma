@@ -11,7 +11,7 @@ import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import { createGithubApp } from "../../src/create-services";
 import { getStorage } from "../../src/services";
-import { ensureCachedCheckout, probeEvidence } from "../framework";
+import { ensureFetchable, probeEvidence } from "../framework";
 import { casesDir } from "../framework/cases-dir";
 import { reporterCaseInputSchema } from "../reporter/reporter-input";
 import { resolveSnapshotCoords } from "./snapshot-coords";
@@ -54,11 +54,11 @@ export async function captureReporter(params: CaptureReporterParams): Promise<st
     const storage = getStorage();
     const payload = await downloadPayload(storage, snapshotId, logger);
 
-    // Resolve coords and validate both SHAs are fetchable (throws UnfetchableShaError on a dead SHA), rehydrating
-    // through the same cache path the eval uses so we never write a case that cannot be re-run.
+    // Resolve coords and validate both SHAs are fetchable (throws UnfetchableShaError on a dead SHA), warming
+    // the same cache the eval uses so we never write a case that cannot be re-run.
     const githubApp = createGithubApp();
     const coords = await resolveSnapshotCoords(snapshotId, githubApp);
-    await ensureCachedCheckout(coords, { githubApp });
+    await ensureFetchable(coords, { githubApp });
 
     // The blob stores media as S3 keys; probe every one so a case whose screenshots have rotated away is refused,
     // not frozen unrunnable.

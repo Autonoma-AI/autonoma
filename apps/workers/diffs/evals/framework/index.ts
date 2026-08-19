@@ -1,7 +1,9 @@
 export {
+    type CheckoutHandle,
     type CodebaseCoords,
     codebaseCoordsSchema,
     ensureCachedCheckout,
+    ensureFetchable,
     type EnsureCachedCheckoutOptions,
     UnfetchableShaError,
 } from "./codebase-cache";

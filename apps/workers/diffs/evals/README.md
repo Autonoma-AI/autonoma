@@ -318,8 +318,11 @@ whose commits are already in the repo cache run without them.
 pnpm --filter @autonoma/worker-diffs eval
 ```
 
-- The suite runs **sequentially** - every case shares one on-disk working tree in the gitignored
-  repo cache (`evals/.cache/repos/`), so concurrent checkouts are impossible.
+- Cases run **concurrently** - each rehydrates into its own `git worktree` cut from a per-repo clone
+  shared in the gitignored cache (`evals/.cache/repos/`), so their checkouts never collide. How many
+  run at once is capped by `maxConcurrency` in `vitest.config.ts`, kept below the corpus size so the
+  model fan-out (heaviest: the per-case video uploads) does not trip provider rate limits; lower it if
+  you see 429s or aborted generations.
 - A case whose `baseSha`/`headSha` can no longer be fetched **skips with a warning** rather than
   red-failing the suite.
 - A JSON result with a pass-rate is written to `<step>/results/` (gitignored).

@@ -31,7 +31,11 @@ export async function rehydrateOrSkip(
     ctx: CaseSkipContext,
 ): Promise<Codebase> {
     try {
-        return await ensureCachedCheckout(coords);
+        const { codebase, dispose } = await ensureCachedCheckout(coords, { logger: ctx.logger, label: ctx.caseName });
+        // The case owns this worktree; remove it when the case finishes so concurrent cases do not
+        // accumulate trees on disk for the length of the run.
+        helpers.onCleanup(dispose);
+        return codebase;
     } catch (err) {
         if (err instanceof UnfetchableShaError) {
             ctx.logger.warn("Skipping case: codebase no longer fetchable", {

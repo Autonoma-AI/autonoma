@@ -20,7 +20,7 @@ import { previewSecrets } from "../../src/preview-secrets";
 import { type ProductionCapabilities, serializeClassifierInput } from "../classifier/classifier-input";
 import { FrozenAppLogArtifactStore } from "../classifier/frozen-app-log-artifact";
 import { casesDir } from "../framework/cases-dir";
-import { ensureCachedCheckout } from "../framework/codebase-cache";
+import { ensureFetchable } from "../framework/codebase-cache";
 import { freezeAppLogWindow } from "./freeze-app-log-window";
 import { resolveSnapshotCoords } from "./snapshot-coords";
 
@@ -73,9 +73,9 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
 
     const githubApp = createGithubApp();
     const coords = await resolveSnapshotCoords(snapshotId, githubApp);
-    // Rehydrate through the same cache path the eval uses, for its SHA-fetchability check: a case whose head
-    // was force-pushed away is refused here instead of failing every future run of the suite.
-    await ensureCachedCheckout(coords, { githubApp });
+    // Warm the same cache the eval uses, for its SHA-fetchability check: a case whose head was force-pushed
+    // away is refused here instead of failing every future run of the suite.
+    await ensureFetchable(coords, { githubApp });
 
     const meta = await loadSnapshotMeta(snapshotId);
     const github = await resolveGitHubAccess(meta);

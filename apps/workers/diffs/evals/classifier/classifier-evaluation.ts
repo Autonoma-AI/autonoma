@@ -45,7 +45,7 @@ const TIMEOUT_PER_RUN_MS = 900_000;
  * A case passes when every classification satisfies the deterministic checks AND the judge passes. Cases whose
  * codebase or media can no longer be fetched are skipped, not failed.
  *
- * Runs sequentially: every case shares one on-disk working tree in the repo cache.
+ * Cases run concurrently: each rehydrates into its own git worktree off the shared repo clone.
  */
 export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
     private readonly judge = new DiffsJudge();
@@ -56,7 +56,7 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
         super(
             {
                 name: "diffs-classifier",
-                parallel: false,
+                parallel: true,
                 testOptions: { timeout: slowestCase * TIMEOUT_PER_RUN_MS },
                 resultsDir,
             },

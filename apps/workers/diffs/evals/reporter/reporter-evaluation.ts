@@ -42,7 +42,7 @@ const FIXABLE_RETRY_PREFIXES = ["Cannot finish yet.", "Nothing was left of"];
  * A case passes when every run satisfies the deterministic checks AND the judge passes. Cases whose codebase or
  * media can no longer be fetched are skipped, not failed.
  *
- * Runs sequentially: every case shares one on-disk working tree in the repo cache.
+ * Cases run concurrently: each rehydrates into its own git worktree off the shared repo clone.
  */
 export class ReporterEvaluation extends Evaluation<ReporterCase> {
     private readonly judge = new DiffsJudge();
@@ -53,7 +53,7 @@ export class ReporterEvaluation extends Evaluation<ReporterCase> {
         super(
             {
                 name: "diffs-reporter",
-                parallel: false,
+                parallel: true,
                 testOptions: { timeout: slowestCase * TIMEOUT_PER_RUN_MS },
                 resultsDir,
             },

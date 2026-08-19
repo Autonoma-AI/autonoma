@@ -6,7 +6,7 @@ import { assembleDiffsAgentInput } from "../../src/analysis/assemble-input";
 import { createGithubApp } from "../../src/create-services";
 import { serializeAnalysisInput } from "../analysis/analysis-input";
 import { casesDir } from "../framework/cases-dir";
-import { ensureCachedCheckout } from "../framework/codebase-cache";
+import { ensureFetchable } from "../framework/codebase-cache";
 import { resolveSnapshotCoords } from "./snapshot-coords";
 
 export interface CaptureAnalysisParams {
@@ -46,10 +46,9 @@ export async function captureAnalysis(params: CaptureAnalysisParams): Promise<st
     const githubApp = createGithubApp();
     const coords = await resolveSnapshotCoords(snapshotId, githubApp);
 
-    // Rehydrate through the same cache path the eval uses, which validates
-    // SHA-fetchability (throws UnfetchableShaError on a dead SHA, so we never
-    // write an unrunnable case).
-    await ensureCachedCheckout(coords, { githubApp });
+    // Warm the same cache the eval uses and validate SHA-fetchability (throws
+    // UnfetchableShaError on a dead SHA, so we never write an unrunnable case).
+    await ensureFetchable(coords, { githubApp });
 
     // Use the *previous* snapshot's suite as the baseline: by capture time the
     // pipeline has already rewritten this snapshot's own assignments, so reading

@@ -23,8 +23,8 @@ const CASE_TIMEOUT_MS = 600_000;
  * AND the judge passes. Cases whose codebase can no longer be fetched are
  * skipped, not failed.
  *
- * Runs sequentially: every case shares one on-disk working tree in the repo
- * cache, so concurrent checkouts are impossible.
+ * Cases run concurrently: each rehydrates into its own git worktree off the
+ * shared repo clone.
  */
 export class AnalysisEvaluation extends Evaluation<AnalysisCase> {
     private readonly judge = new DiffsJudge();
@@ -34,7 +34,7 @@ export class AnalysisEvaluation extends Evaluation<AnalysisCase> {
         super(
             {
                 name: "diffs-analysis",
-                parallel: false,
+                parallel: true,
                 testOptions: { timeout: CASE_TIMEOUT_MS },
                 resultsDir,
             },

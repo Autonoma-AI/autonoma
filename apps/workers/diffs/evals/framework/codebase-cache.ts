@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Codebase } from "@autonoma/diffs";
 import { type GitHubApp, OctokitGitHubApp } from "@autonoma/github";
+import { ensurePem } from "@autonoma/github/schemas";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { z } from "zod";
 
@@ -14,6 +16,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** Default on-disk repo cache, gitignored, shared across every eval run in this app. */
 const DEFAULT_CACHE_ROOT = path.resolve(__dirname, "..", ".cache", "repos");
+
+/** Per-repo worktrees live in a sibling dir so the base clone's own tree is never disturbed. */
+const WORKTREES_SUFFIX = ".worktrees";
+
+/** Cap on a sanitized worktree label, so per-case worktree paths stay sane. */
+const MAX_LABEL_LENGTH = 60;
+
+/**
+ * One base clone per repo, cloned at most once and shared as the object store for every case's
+ * worktree. Keyed by repo dir; the entry is evicted on failure so a later case can retry.
+ */
+const baseClones = new Map<string, Promise<void>>();
+
+/** Serializes the `.git`-mutating plumbing (fetch, worktree add/remove) per repo dir. */
+const repoLocks = new Map<string, Promise<void>>();
+
+/** Monotonic id making each case's worktree dir unique within a run. */
+let worktreeSeq = 0;
 
 /**
  * The git coordinates of a frozen eval case, stored in `input.json` in place of
@@ -57,7 +77,19 @@ export interface EnsureCachedCheckoutOptions {
     cacheRoot?: string;
     /** Override the GitHub App (defaults to one built from this app's env). */
     githubApp?: GitHubApp;
+    /** Human-readable label (e.g. the case name) used to name this checkout's worktree dir. */
+    label?: string;
     logger?: Logger;
+}
+
+/**
+ * A per-case checkout: the {@link Codebase} rooted at its own git worktree, plus the `dispose` that
+ * removes that worktree. The holder owns the worktree and must dispose it when done - the eval
+ * framework wires `dispose` to `onCleanup` so each concurrent case reclaims its own tree.
+ */
+export interface CheckoutHandle {
+    codebase: Codebase;
+    dispose(): Promise<void>;
 }
 
 let githubAppSingleton: GitHubApp | undefined;
@@ -74,7 +106,10 @@ async function loadDefaultGithubApp(): Promise<GitHubApp> {
         const { env } = await import("../../src/env");
         githubAppSingleton = new OctokitGitHubApp({
             appId: env.GITHUB_APP_ID,
-            privateKey: env.GITHUB_APP_PRIVATE_KEY,
+            // Evals run under TESTING=true, which makes createEnv skip the base64PrivateKey transform,
+            // so the key may still be base64 here. Decode it, or no installation token can be minted and
+            // every private-repo case silently falls back to an unauthenticated clone.
+            privateKey: ensurePem(env.GITHUB_APP_PRIVATE_KEY),
             webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
             appSlug: env.GITHUB_APP_SLUG,
         });
@@ -82,41 +117,36 @@ async function loadDefaultGithubApp(): Promise<GitHubApp> {
     return githubAppSingleton;
 }
 
+/** A warmed repo cache: the base clone exists with the case's commits fetched and validated. */
+interface RepoCacheContext {
+    repoDir: string;
+    worktreesDir: string;
+    logger: Logger;
+}
+
 /**
- * Rehydrate a {@link Codebase} from git coordinates against a persistent,
- * gitignored repo cache.
- *
- * Clone-once-then-fetch: the first time a repo is seen it is cloned into the
- * cache; subsequent runs only `git fetch` the needed commits and `git checkout`
- * the head SHA. A fresh App installation token is minted lazily - only when a
- * clone or fetch actually needs the network - and used inline, never persisted
- * into the clone's git config. A repo whose SHAs are already cached needs no
- * token at all, and public repos work unauthenticated.
- *
- * After this resolves, `baseSha` and `headSha` are both reachable in the
- * returned codebase, so `base..head` diffing works. Throws
- * {@link UnfetchableShaError} if either SHA cannot be fetched.
- *
- * The caller must NOT `dispose()` the returned codebase - the working tree is
- * shared across cases, so the suite must run sequentially.
+ * Clone-once and fetch the case's commits into the shared cache, validating both are reachable - the
+ * half of a checkout that warms the cache WITHOUT materializing a working tree. A fresh App
+ * installation token is minted lazily - only when a clone or fetch actually needs the network - and
+ * used inline, never persisted into the clone's git config. A repo whose SHAs are already cached needs
+ * no token, and public repos work unauthenticated. Throws {@link UnfetchableShaError} if either SHA
+ * cannot be fetched.
  */
-export async function ensureCachedCheckout(
-    coords: CodebaseCoords,
-    options: EnsureCachedCheckoutOptions = {},
-): Promise<Codebase> {
+async function fetchIntoCache(coords: CodebaseCoords, options: EnsureCachedCheckoutOptions): Promise<RepoCacheContext> {
     const { owner, repo, installationId, baseSha, headSha } = coords;
     const repoFullName = `${owner}/${repo}`;
     const cacheRoot = options.cacheRoot ?? DEFAULT_CACHE_ROOT;
     const repoDir = path.join(cacheRoot, `${owner}__${repo}`);
+    const worktreesDir = `${repoDir}${WORKTREES_SUFFIX}`;
     const logger = (options.logger ?? rootLogger).child({ name: "ensureCachedCheckout" });
 
-    logger.info("Ensuring cached checkout", { extra: { repoFullName, repoDir, baseSha, headSha } });
+    logger.info("Fetching case commits into cache", { extra: { repoFullName, repoDir, baseSha, headSha } });
 
     const publicUrl = `https://github.com/${repoFullName}.git`;
 
-    // Mint the App token lazily and at most once: a cached repo whose SHAs are
-    // already present needs no network at all, and public repos clone/fetch
-    // unauthenticated. Falls back to the public URL if a token can't be minted.
+    // Mint the App token lazily and at most once: a cached repo whose SHAs are already present needs
+    // no network at all, and public repos clone/fetch unauthenticated. Falls back to the public URL
+    // if a token can't be minted.
     const getCloneUrl = memoizedCloneUrl({
         githubApp: options.githubApp,
         installationId,
@@ -125,22 +155,157 @@ export async function ensureCachedCheckout(
         logger,
     });
 
+    await ensureBaseClone({ repoDir, worktreesDir, getCloneUrl, publicUrl, logger });
+
+    // Fetch both commits under the per-repo lock: fetch mutates the shared `.git`, so concurrent cases
+    // would race. The worktree add and the model work both happen outside this section.
+    await withRepoLock(repoDir, async () => {
+        await fetchSha({ repoDir, getCloneUrl, sha: headSha, repoFullName, logger });
+        await fetchSha({ repoDir, getCloneUrl, sha: baseSha, repoFullName, logger });
+    });
+
+    await assertReachable({ repoDir, sha: baseSha, repoFullName });
+
+    return { repoDir, worktreesDir, logger };
+}
+
+/**
+ * Warm the repo cache for a case's coords and validate both SHAs are fetchable, without materializing
+ * a working tree. Capture wants exactly this - a warm cache and a fetchability check - so it never
+ * pays to add and remove a worktree it would not use. Throws {@link UnfetchableShaError} if either SHA
+ * cannot be fetched.
+ */
+export async function ensureFetchable(
+    coords: CodebaseCoords,
+    options: EnsureCachedCheckoutOptions = {},
+): Promise<void> {
+    await fetchIntoCache(coords, options);
+}
+
+/**
+ * Rehydrate a {@link Codebase} from git coordinates against a persistent, gitignored repo cache,
+ * isolated in its own git worktree so cases can run concurrently.
+ *
+ * Warms the cache (see {@link fetchIntoCache}), then cuts a fresh worktree detached at `headSha` under
+ * the per-repo lock (worktree bookkeeping mutates the shared `.git`); everything the caller does with
+ * the returned worktree afterwards is fully parallel. Both `baseSha` and `headSha` are reachable in
+ * the worktree, so `base..head` diffing works.
+ *
+ * The caller OWNS the returned worktree and MUST call `dispose()` when done to remove it. Any tree
+ * leaked by a crash is reclaimed by the next run's `worktree prune`.
+ */
+export async function ensureCachedCheckout(
+    coords: CodebaseCoords,
+    options: EnsureCachedCheckoutOptions = {},
+): Promise<CheckoutHandle> {
+    const { repoDir, worktreesDir, logger } = await fetchIntoCache(coords, options);
+
+    const label = sanitizeLabel(options.label ?? coords.headSha.slice(0, 12));
+    const worktreeDir = path.join(worktreesDir, `${label}-${nextWorktreeId()}`);
+
+    await withRepoLock(repoDir, async () => {
+        logger.info("Adding case worktree", { extra: { worktreeDir, headSha: coords.headSha } });
+        await git(repoDir, ["worktree", "add", "--detach", worktreeDir, coords.headSha]);
+    });
+
+    logger.info("Cached checkout ready", { extra: { worktreeDir } });
+    return {
+        codebase: new Codebase(worktreeDir),
+        dispose: () => removeWorktree({ repoDir, worktreeDir, logger }),
+    };
+}
+
+/**
+ * Clone the repo once and reuse it as the shared object store for every case's worktree. Memoized
+ * per repo dir so N concurrent cases for one repo trigger a single clone; the memo is evicted on
+ * failure so a later case can retry. Before any worktree is added, this reclaims trees left by a
+ * previous crashed run - remove the dirs, then prune git's now-dangling admin entries - so fresh
+ * per-case worktrees never collide with a stale one.
+ */
+function ensureBaseClone(params: {
+    repoDir: string;
+    worktreesDir: string;
+    getCloneUrl: () => Promise<string>;
+    publicUrl: string;
+    logger: Logger;
+}): Promise<void> {
+    const cached = baseClones.get(params.repoDir);
+    if (cached != null) return cached;
+
+    const pending = prepareBaseClone(params).catch((err) => {
+        baseClones.delete(params.repoDir);
+        throw err;
+    });
+    baseClones.set(params.repoDir, pending);
+    return pending;
+}
+
+async function prepareBaseClone(params: {
+    repoDir: string;
+    worktreesDir: string;
+    getCloneUrl: () => Promise<string>;
+    publicUrl: string;
+    logger: Logger;
+}): Promise<void> {
+    const { repoDir, worktreesDir, getCloneUrl, publicUrl, logger } = params;
+
     if (!existsSync(path.join(repoDir, ".git"))) {
         await cloneInto({ repoDir, getCloneUrl, publicUrl, logger });
     } else {
         logger.info("Reusing existing clone");
     }
 
-    await fetchSha({ repoDir, getCloneUrl, sha: headSha, repoFullName, logger });
-    await fetchSha({ repoDir, getCloneUrl, sha: baseSha, repoFullName, logger });
+    await rm(worktreesDir, { recursive: true, force: true });
+    await git(repoDir, ["worktree", "prune"]);
+}
 
-    logger.info("Checking out head SHA", { extra: { headSha } });
-    await git(repoDir, ["checkout", "--force", "--detach", headSha]);
+/**
+ * Serialize the `.git`-mutating plumbing (fetch, worktree add/remove) for one repo. These race under
+ * concurrent access; the model work that follows does not, so only the few seconds of plumbing are
+ * serialized, never the minutes of the run. Rejections are swallowed from the stored chain so one
+ * case's failure never wedges the next.
+ */
+function withRepoLock<T>(repoDir: string, work: () => Promise<T>): Promise<T> {
+    const previous = repoLocks.get(repoDir) ?? Promise.resolve();
+    const result = previous.then(work, work);
+    repoLocks.set(
+        repoDir,
+        result.then(
+            () => undefined,
+            () => undefined,
+        ),
+    );
+    return result;
+}
 
-    await assertReachable({ repoDir, sha: baseSha, repoFullName });
+/**
+ * Remove a case's worktree. Best-effort: a failed removal is logged, not thrown - the case it belongs
+ * to has already produced its result, and any leftover tree is reclaimed by the next run's prune.
+ */
+async function removeWorktree(params: { repoDir: string; worktreeDir: string; logger: Logger }): Promise<void> {
+    const { repoDir, worktreeDir, logger } = params;
+    try {
+        await withRepoLock(repoDir, () => git(repoDir, ["worktree", "remove", "--force", worktreeDir]));
+        logger.info("Removed case worktree", { extra: { worktreeDir } });
+    } catch (err) {
+        logger.warn("Failed to remove case worktree; it will be pruned on the next run", {
+            extra: { worktreeDir, err },
+        });
+    }
+}
 
-    logger.info("Cached checkout ready");
-    return new Codebase(repoDir);
+/** A filesystem-safe, bounded worktree label. */
+function sanitizeLabel(label: string): string {
+    const safe = label
+        .replace(/[^A-Za-z0-9._-]/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, MAX_LABEL_LENGTH);
+    return safe.length > 0 ? safe : "case";
+}
+
+function nextWorktreeId(): number {
+    worktreeSeq += 1;
+    return worktreeSeq;
 }
 
 /** Lazily resolve the URL to clone/fetch from, minting an App token once and caching the result. */
