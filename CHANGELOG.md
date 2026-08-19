@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.260819.2](https://github.com/Autonoma-AI/agent/compare/v1.260819.1...v1.260819.2) (2026-08-19)
+
+
+### Features
+
+* **ui:** redesign finding drawer summary and surface setup failures ([#2643](https://github.com/Autonoma-AI/agent/issues/2643)) ([1333335](https://github.com/Autonoma-AI/agent/commit/1333335cad2b3405b113f66ab95cdeea6ff7495e))
+
+
+### Bug Fixes
+
+* **api:** disable Better Auth rate limiting in favor of the CloudFront WAF ([#2655](https://github.com/Autonoma-AI/agent/issues/2655)) ([2f0a1b0](https://github.com/Autonoma-AI/agent/commit/2f0a1b0525de71ba36b852a1729c5e4936b88ab5))
+* **cli:** reject run-unique tokens in the test setup/body, not just steps ([#2639](https://github.com/Autonoma-AI/agent/issues/2639)) ([a1d4950](https://github.com/Autonoma-AI/agent/commit/a1d4950db979503612a6d8c9604f23dc6732dad8))
+* **cli:** report coverage gaps honestly at page granularity ([#2649](https://github.com/Autonoma-AI/agent/issues/2649)) ([6a894ce](https://github.com/Autonoma-AI/agent/commit/6a894ce6b97259f88ac43a709d32fca68453a2b9))
+
 ## [1.260819.1](https://github.com/Autonoma-AI/agent/compare/v1.260818.3...v1.260819.1) (2026-08-19)
 
 
