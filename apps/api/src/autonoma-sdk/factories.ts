@@ -22,6 +22,7 @@ import {
     PREVIEW_CONFIG_VERSION,
     previewkitConfigRowValues,
     primaryScreenshotSchema,
+    STANDARD_RESOURCES,
     suspectedCauseSchema,
     trustedPreviewConfigSchema,
 } from "@autonoma/types";
@@ -32,6 +33,14 @@ const logger = rootLogger.child({ name: "AutonomaSdkFactories" });
 
 /** `PreviewkitAppInstance.port` is required; a recipe that omits it gets the usual web port. */
 const DEFAULT_PREVIEW_APP_PORT = 3000;
+
+/**
+ * Repository stamped on a seeded preview app when the recipe declares none.
+ * Shared by {@link SEEDED_PREVIEW_DOCUMENT} and the backfill in
+ * {@link resolvePreviewkitAppId}, so a synthesized app row belongs to the same
+ * repository the seeded document already names.
+ */
+const SEEDED_PREVIEW_REPOSITORY = "autonoma/seeded-preview";
 
 /** Wallet defaults for a seeded tenant - enough that no billing screen renders an out-of-credits state. */
 const DEFAULT_CREDIT_BALANCE = 50_000;
@@ -940,7 +949,7 @@ const PreviewkitConfigInput = loose({
  */
 const SEEDED_PREVIEW_DOCUMENT = {
     version: PREVIEW_CONFIG_VERSION,
-    apps: [{ name: "web", repository: "autonoma/seeded-preview", port: 3000, primary: true }],
+    apps: [{ name: "web", repository: SEEDED_PREVIEW_REPOSITORY, port: 3000, primary: true }],
 };
 
 const PreviewkitConfigFactory = defineFactory({
@@ -974,6 +983,63 @@ const PreviewkitAppInstanceInput = loose({
     error: z.string().optional(),
 });
 
+/**
+ * The PreviewkitApp a seeded instance hangs off. The app rows ARE the config
+ * document (there is no `document` column), and a regenerated recipe seeds an
+ * instance for an app the `web`-only default document never named - so when the
+ * app is absent we backfill it onto the config rather than 500 with an opaque
+ * Prisma "record not found". A genuinely missing config is still a real error.
+ * An environment has no FK to its application - it is matched on repository,
+ * scoped by organization, since a repository id is unique only within an org.
+ */
+async function resolveSeededPreviewkitAppId(
+    environment: { organizationId: string; githubRepositoryId: number | null },
+    appName: string,
+    port: number | undefined,
+): Promise<string> {
+    const config = await db.previewkitConfig.findFirst({
+        where: {
+            application: {
+                organizationId: environment.organizationId,
+                githubRepositoryId: environment.githubRepositoryId,
+            },
+        },
+        select: {
+            id: true,
+            apps: { select: { id: true, name: true, repository: true }, orderBy: { position: "asc" } },
+        },
+    });
+    if (config == null) {
+        throw new Error(
+            `No PreviewkitConfig for the seeded application (organization ${environment.organizationId}, ` +
+                `repository ${environment.githubRepositoryId ?? "none"}). Seed a PreviewkitConfig before a PreviewkitAppInstance.`,
+        );
+    }
+
+    const existing = config.apps.find((app) => app.name === appName);
+    if (existing != null) return existing.id;
+
+    logger.warn("Backfilling a PreviewkitApp the config document never declared", {
+        organizationId: environment.organizationId,
+        extra: { appName, configId: config.id, declaredApps: config.apps.map((app) => app.name) },
+    });
+    const created = await db.previewkitApp.create({
+        data: {
+            configId: config.id,
+            name: appName,
+            position: config.apps.length,
+            repository: config.apps[0]?.repository ?? SEEDED_PREVIEW_REPOSITORY,
+            path: ".",
+            port: port ?? DEFAULT_PREVIEW_APP_PORT,
+            resourcesCpu: STANDARD_RESOURCES.app.cpu,
+            resourcesMemoryRequest: STANDARD_RESOURCES.app.memoryRequest,
+            resourcesMemoryLimit: STANDARD_RESOURCES.app.memoryLimit,
+        },
+        select: { id: true },
+    });
+    return created.id;
+}
+
 const PreviewkitAppInstanceFactory = defineFactory({
     inputSchema: PreviewkitAppInstanceInput,
     refSchema: emptyRef,
@@ -982,31 +1048,16 @@ const PreviewkitAppInstanceFactory = defineFactory({
     create: async (data) => {
         const suffix = randomBytes(3).toString("hex");
         const appName = data.appName ?? `app-${suffix}`;
-        // An instance hangs off the app row, so the topology has to name this app
-        // before there is anywhere to record a deployment of it. An environment has
-        // no foreign key to its application - it is matched on repository, scoped by
-        // organization, since a repository id is unique only within an org.
         const environment = await db.previewkitEnvironment.findUniqueOrThrow({
             where: { id: data.environmentId },
             select: { organizationId: true, githubRepositoryId: true },
         });
-        const app = await db.previewkitApp.findFirstOrThrow({
-            where: {
-                name: appName,
-                config: {
-                    application: {
-                        organizationId: environment.organizationId,
-                        githubRepositoryId: environment.githubRepositoryId,
-                    },
-                },
-            },
-            select: { id: true },
-        });
+        const appId = await resolveSeededPreviewkitAppId(environment, appName, data.port);
         const row = await db.previewkitAppInstance.create({
             data: {
                 environmentId: data.environmentId,
                 appName,
-                appId: app.id,
+                appId,
                 status: PreviewkitAppStatus.safeParse(data.status).data ?? "ready",
                 imageTag: data.imageTag ?? undefined,
                 url: data.url ?? undefined,
