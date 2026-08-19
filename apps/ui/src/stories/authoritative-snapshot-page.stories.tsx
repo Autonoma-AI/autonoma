@@ -53,6 +53,18 @@ const PLACE_ORDER_SNIPPET = `function PlaceOrder({ form }: { form: CheckoutForm 
   );
 }`;
 
+const UPLOAD_FILES_SNIPPET = `function UploadFiles() {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      {/* The click delegates to a hidden native input - the browser
+          file chooser it opens is chrome the agent cannot drive. */}
+      <button onClick={() => inputRef.current?.click()}>Upload files</button>
+      <input ref={inputRef} type="file" accept=".pdf" hidden />
+    </>
+  );
+}`;
+
 // The Reporter's report-as-of-this-job prose. Exercises the inline tokens: a link to the issue this finding rolls
 // up to, a link to the finding itself, an evidence image backed by `reportEvidence`, and - because the prose is
 // PR-cumulative even here - a link to an issue with NO finding in this run, which resolves via the branch's issue
@@ -277,8 +289,12 @@ const findingDetailData: AnalysisFindingDetailFixture = {
     rootCause:
       "The submit handler reads a `formValid` flag that is computed once on mount and never recomputed after " +
       "the async address-validation promise resolves.",
+    observedAppIssues:
+      "The mini-cart badge briefly showed the wrong item count while the address validated, then corrected " +
+      "itself - unrelated to this test's failure but worth a look.",
     evidence: [
       { source: "run", detail: "The Place order button kept aria-disabled after all fields were valid." },
+      { source: "screenshot", detail: "Final frame shows every field green with the button still greyed out." },
       {
         source: "code",
         detail: "The submit handler never re-reads validity once address validation resolves.",
@@ -346,6 +362,139 @@ const findingDetailData: AnalysisFindingDetailFixture = {
     "4. Click **Place order**.",
     "5. Assert the confirmation page shows the order number and a **Paid** badge.",
   ].join("\n"),
+  previousPlan: undefined,
+};
+
+// An engine_artifact finding's payload: a COVERAGE verdict, so it carries `whatHappened` + evidence in place of
+// expected/actual, and its recording still plays (any run that ran shows its video). Proves the summary tab is not
+// empty beyond the video - the native-file-picker wall is a real, inspectable account.
+const findingDetailEngineArtifact: AnalysisFindingDetailFixture = {
+  ...findingDetailData,
+  findingId: "documents-upload-attachment",
+  testCase: {
+    id: "tc_documents-upload-attachment",
+    name: "documents-upload-attachment.md",
+    slug: "documents-upload-attachment",
+    description: "A signed-in user attaches a PDF to a chat thread from the Documents panel.",
+  },
+  iterations: [
+    {
+      number: 1,
+      category: "engine_artifact",
+      headline: "Native file picker blocked the upload before any document was selected",
+      createdAt: RUN_AT,
+    },
+  ],
+  classification: {
+    number: 1,
+    category: "engine_artifact",
+    confidence: "high",
+    headline: "Native file picker blocked the upload before any document was selected",
+    createdAt: RUN_AT,
+    expectedBehavior: undefined,
+    actualBehavior: undefined,
+    remediation: undefined,
+    rootCause: undefined,
+    whatHappened:
+      "The authenticated Chat page rendered correctly and the Documents tab opened. Clicking Upload files only " +
+      "triggers a hidden native file input, which the browser agent cannot drive - so no file was ever selected " +
+      "and the panel correctly stayed at its empty state. The app never misbehaved; the harness hit a wall it " +
+      "cannot get past.",
+    observedAppIssues: undefined,
+    evidence: [
+      {
+        source: "run",
+        detail:
+          "The trace shows successful navigation and Documents-panel clicks, then the run stalls: the type, send, " +
+          "and citation-assertion steps never execute.",
+      },
+      {
+        source: "screenshot",
+        detail:
+          "After the upload click the Documents panel still shows the Upload files button and “No documents " +
+          "attached” - no picker, no progress, no error.",
+      },
+      {
+        source: "code",
+        detail: "Upload is wired to a hidden native input; there is no in-DOM control the agent could click instead.",
+        file: "src/documents/UploadFiles.tsx",
+        lines: "31-47",
+        snippet: UPLOAD_FILES_SNIPPET,
+      },
+    ],
+    keyScreenshotUrl: MOCK_SCREENSHOT,
+  },
+  generation: {
+    ...findingDetailData.generation!,
+    id: "gen_documents-upload-attachment",
+  },
+  plan: [
+    "**Setup**: A signed-in user is on the Chat page with the Documents panel open.",
+    "",
+    "**Intent**: Verify a user can attach a PDF to the current thread.",
+    "",
+    "**Steps**",
+    "",
+    "1. Click **Upload files** in the Documents panel.",
+    "2. Choose `quarterly-report.pdf` from the picker.",
+    "3. Assert the file appears in the **Attached** list with a **Ready** badge.",
+  ].join("\n"),
+  previousPlan: undefined,
+};
+
+// A short-circuit failure: the scenario's data seeding failed before the app ever loaded, so there is no video,
+// no steps, and no verdict story - just the structured generation failure. The summary tab surfaces it as the
+// critical panel (the same one the generation page shows), explaining the error and what to check. The panel keys
+// off the generation's `failure`, not the verdict, so it renders the same whether this lands as environment_failure
+// (where these now settle), scenario_issue, or the legacy engine_artifact.
+const findingDetailSetupFailure: AnalysisFindingDetailFixture = {
+  ...findingDetailData,
+  findingId: "documents-upload-attachment",
+  testCase: {
+    id: "tc_documents-upload-attachment",
+    name: "documents-upload-attachment.md",
+    slug: "documents-upload-attachment",
+    description: "A signed-in user attaches a PDF to a chat thread from the Documents panel.",
+  },
+  iterations: [
+    {
+      number: 1,
+      category: "environment_failure",
+      headline: "Scenario setup failed before the app was exercised",
+      createdAt: RUN_AT,
+    },
+  ],
+  classification: {
+    number: 1,
+    category: "environment_failure",
+    confidence: undefined,
+    headline: "Scenario setup failed before the app was exercised",
+    createdAt: RUN_AT,
+    expectedBehavior: undefined,
+    actualBehavior: undefined,
+    whatHappened: undefined,
+    remediation: undefined,
+    rootCause: undefined,
+    observedAppIssues: undefined,
+    evidence: [],
+    keyScreenshotUrl: undefined,
+  },
+  generation: {
+    id: "gen_documents-upload-attachment",
+    status: "failed",
+    startedAt: RUN_STARTED_AT,
+    completedAt: RUN_AT,
+    videoUrl: undefined,
+    optimizedVideoUrl: undefined,
+    failure: {
+      kind: "scenario_setup",
+      message:
+        'SDK returned HTTP 400: Invalid request body: no factory registered for model "DocumentPriorityTier". ' +
+        "Register one with `defineFactory(...)` and add it to HandlerConfig.factories.",
+    },
+    steps: [],
+  },
+  plan: findingDetailEngineArtifact.plan,
   previousPlan: undefined,
 };
 
@@ -767,6 +916,42 @@ export const RunningTests: Story = {
 export const Drawer: Story = {
   args: {
     path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/running/finding/checkout-place-order`,
+  },
+};
+
+/**
+ * The drawer summary for a COVERAGE verdict (engine_artifact): no expected/actual, but the recording plus a
+ * "What happened" account and its evidence - proving the summary is not empty beyond the video.
+ */
+export const DrawerEngineArtifact: Story = {
+  args: {
+    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/running/finding/documents-upload-attachment`,
+  },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...pageFixtures,
+        branches: { ...pageFixtures.branches, analysisFindingDetail: findingDetailEngineArtifact },
+      }),
+    },
+  },
+};
+
+/**
+ * The drawer summary for a run that never reached the app - the scenario data seeding failed. No video, no
+ * steps, no verdict story; just the critical failure panel explaining the error and what to check.
+ */
+export const DrawerSetupFailure: Story = {
+  args: {
+    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/running/finding/documents-upload-attachment`,
+  },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...pageFixtures,
+        branches: { ...pageFixtures.branches, analysisFindingDetail: findingDetailSetupFailure },
+      }),
+    },
   },
 };
 

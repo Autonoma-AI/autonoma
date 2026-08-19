@@ -51,6 +51,35 @@ apiTestSuite({
             expect(detail?.plan).toBe("checkout-submit plan");
         });
 
+        test("surfaces a generation's system failure so the drawer can explain a never-run test", async ({
+            harness,
+        }) => {
+            const { snapshotId } = await createAuthoritativeSnapshot(harness);
+            const findingFor = await seedAnalysisFindings(harness.db, snapshotId, [
+                {
+                    slug: "documents-upload",
+                    category: "engine_artifact",
+                    headline: "Scenario setup failed before the app was exercised",
+                },
+            ]);
+            const findingId = findingFor("documents-upload");
+            const generationId = await currentGenerationId(harness, findingId);
+            await harness.db.testGeneration.update({
+                where: { id: generationId },
+                data: {
+                    status: "failed",
+                    failure: { kind: "scenario_setup", message: "SDK returned HTTP 400: no factory registered." },
+                },
+            });
+
+            const detail = await harness.request().branches.analysisFindingDetail({ findingId });
+
+            expect(detail?.generation?.failure).toEqual({
+                kind: "scenario_setup",
+                message: "SDK returned HTTP 400: no factory registered.",
+            });
+        });
+
         test("selects a superseded iteration together with the generation it judged", async ({ harness }) => {
             const { snapshotId } = await createAuthoritativeSnapshot(harness);
             const findingFor = await seedAnalysisFindings(harness.db, snapshotId, [

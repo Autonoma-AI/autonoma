@@ -75,6 +75,10 @@ export interface AnalysisFindingDetailGeneration {
     videoUrl?: string;
     optimizedVideoUrl?: string;
     steps: AnalysisFindingDetailStep[];
+    /** Why the generation failed, when it did at the system level (scenario setup / engine error) - the drawer
+     * renders these as a critical panel, the same way the generation page does, for runs that never reached the
+     * app so there is no video, no steps, and no verdict story to show. */
+    failure?: PrismaJson.GenerationFailure;
     /** Admin-only fields, absent otherwise. */
     temporalWorkflow?: { workflowId: string; runId: string };
     conversationUrl?: string;
@@ -172,6 +176,7 @@ function selectClassification(
 const generationSelect = {
     id: true,
     status: true,
+    failure: true,
     createdAt: true,
     updatedAt: true,
     videoUrl: true,
@@ -361,6 +366,7 @@ async function buildGeneration(
         videoUrl,
         optimizedVideoUrl,
         steps,
+        failure: row.failure ?? undefined,
         temporalWorkflow,
         conversationUrl,
         debug: isAdmin

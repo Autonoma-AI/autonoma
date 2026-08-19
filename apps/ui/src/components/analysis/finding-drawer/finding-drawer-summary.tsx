@@ -1,12 +1,26 @@
 import { Skeleton, StableImage, VideoPlayer, cn } from "@autonoma/blacklight";
+import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
+import { EyeIcon } from "@phosphor-icons/react/Eye";
+import { ListDashesIcon } from "@phosphor-icons/react/ListDashes";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { PlayCircleIcon } from "@phosphor-icons/react/PlayCircle";
+import { ScalesIcon } from "@phosphor-icons/react/Scales";
+import { TrashIcon } from "@phosphor-icons/react/Trash";
+import { WarningOctagonIcon } from "@phosphor-icons/react/WarningOctagon";
+import { WrenchIcon } from "@phosphor-icons/react/Wrench";
 import {
   ClassificationErrorBlock,
+  ExpectedActualSections,
   ObservedAppIssuesNote,
   ProseSection,
   VerdictEvidence,
 } from "components/analysis/verdict-story";
+import { SystemFailurePanel, isSystemFailure } from "components/system-failure-panel";
 import { type ReactNode, useState } from "react";
 import type { FindingDetailClassification, FindingDetailGeneration } from "./finding-drawer-types";
+
+/** The size every summary section-title icon renders at, matching the verdict-story headings. */
+const ICON = 13;
 
 /**
  * The drawer's summary tab: one media frame (recording by default, toggling to the classifier's key frame via
@@ -20,29 +34,44 @@ export function FindingDrawerSummary({
   classification: FindingDetailClassification;
   generation?: FindingDetailGeneration;
 }) {
+  const failure = generation?.failure;
   return (
     <div className="flex flex-col gap-5">
+      {isSystemFailure(failure) && <SystemFailurePanel failure={failure} />}
+
       <MediaPanel classification={classification} generation={generation} />
 
-      <ProseSection title="Expected">{classification.expectedBehavior}</ProseSection>
-      <ProseSection title="Actual">{classification.actualBehavior}</ProseSection>
-      <ProseSection title="What happened">{classification.whatHappened}</ProseSection>
-      <ProseSection title="Why it could not be stabilized">{classification.planMismatchNote}</ProseSection>
-      <ProseSection title="Why this test was removed">{classification.invalidTestNote}</ProseSection>
-      <ProseSection title="Remediation">{classification.remediation}</ProseSection>
-
-      <ObservedAppIssuesNote>{classification.observedAppIssues}</ObservedAppIssuesNote>
-
-      <VerdictEvidence evidence={classification.evidence} />
-
-      <ProseSection title="Root cause" tone="secondary">
+      <ExpectedActualSections expected={classification.expectedBehavior} actual={classification.actualBehavior} />
+      <ProseSection title="Root cause" tone="secondary" icon={<MagnifyingGlassIcon size={ICON} />}>
         {classification.rootCause}
       </ProseSection>
-      <ProseSection title="False-positive check" tone="secondary">
+      <ProseSection title="What happened" icon={<PlayCircleIcon size={ICON} />}>
+        {classification.whatHappened}
+      </ProseSection>
+      <ProseSection title="Why it could not be stabilized" icon={<ArrowsClockwiseIcon size={ICON} />}>
+        {classification.planMismatchNote}
+      </ProseSection>
+      <ProseSection title="Why this test was removed" icon={<TrashIcon size={ICON} />}>
+        {classification.invalidTestNote}
+      </ProseSection>
+      <ProseSection title="Remediation" icon={<WrenchIcon size={ICON} />}>
+        {classification.remediation}
+      </ProseSection>
+
+      <ObservedAppIssuesNote icon={<EyeIcon size={ICON} />}>{classification.observedAppIssues}</ObservedAppIssuesNote>
+
+      <VerdictEvidence evidence={classification.evidence} collapsible icon={<ListDashesIcon size={ICON} />} />
+
+      <ProseSection title="False-positive check" tone="secondary" icon={<ScalesIcon size={ICON} />}>
         {classification.falsePositiveRisk}
       </ProseSection>
 
-      {classification.error != null && <ClassificationErrorBlock error={classification.error} />}
+      {classification.error != null && (
+        <ClassificationErrorBlock
+          error={classification.error}
+          icon={<WarningOctagonIcon size={ICON} className="text-status-critical" />}
+        />
+      )}
     </div>
   );
 }

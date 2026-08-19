@@ -10,7 +10,9 @@ import type { InvestigationFinding, InvestigationRunStep } from "@autonoma/types
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { VerdictBadge } from "components/analysis/verdict-badge";
 import {
+  ActualSection,
   ClassificationErrorBlock,
+  ExpectedSection,
   ObservedAppIssuesNote,
   ProseSection,
   VerdictEvidence,
@@ -99,12 +101,8 @@ function FindingBody({
         </div>
       )}
 
-      <ProseSection title="Expected" level={2}>
-        {finding.expectedBehavior}
-      </ProseSection>
-      <ProseSection title="Actual" level={2}>
-        {finding.actualBehavior}
-      </ProseSection>
+      <ExpectedSection level={2}>{finding.expectedBehavior}</ExpectedSection>
+      <ActualSection level={2}>{finding.actualBehavior}</ActualSection>
       <ProseSection title="What happened" level={2}>
         {finding.whatHappened}
       </ProseSection>
