@@ -4,6 +4,7 @@ import { type ApplicationArchitecture, db } from "@autonoma/db";
 import { readPrDiffStat, type InspectableStep, StorageEvidenceLoader } from "@autonoma/diffs";
 import {
     ClassifierAgent,
+    type Evidence,
     PreviewEnvironment,
     formatPriorRunsBaseline,
     type RunArtifacts,
@@ -22,7 +23,11 @@ import {
     previewEnvironmentNumber,
     stepOutputDataSchema,
 } from "@autonoma/types";
-import type { ClassifyInvestigationRunInput, InvestigationTestResult } from "@autonoma/workflow/activities";
+import type {
+    ClassifyInvestigationRunInput,
+    InvestigationEvidence,
+    InvestigationTestResult,
+} from "@autonoma/workflow/activities";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import { resolveRunTarget } from "../codebase/run-target";
 import { withSnapshotContext } from "../codebase/snapshot-context";
@@ -243,6 +248,9 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         // mechanically the last/failed one. When it named no step we show no screenshot rather than falling back
         // to the run's final frame, which is often a setup/blank/home screen and reads as a misleading "failure".
         const keyScreenshot = resolveKeyScreenshot(generation.attempts, verdict.keyStepIndex);
+        // Each screenshot/video evidence item the classifier pinned to a step gets that step's frame key resolved
+        // here (the only place the attempts are in scope), so the finding page can render the cited still inline.
+        const evidence = resolveEvidenceFrames(verdict.evidence, generation.attempts);
         const clipUrl = await maybeGenerateClip(verdict.category, recordingBytes, testGenerationId, logger);
         logger.info("Shadow run classified", {
             extra: { category: verdict.category, confidence: verdict.confidence, keyStepIndex: verdict.keyStepIndex },
@@ -254,7 +262,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             stepCount: runArtifacts.stepCount,
             runSteps: runArtifacts.steps,
             runTrace: deriveRunTrace(generation.attempts),
-            verdict,
+            verdict: { ...verdict, evidence },
             keyScreenshotUrl: keyScreenshot ?? undefined,
             clipUrl,
             conversationUrl,
@@ -299,15 +307,32 @@ async function maybeGenerateClip(
 }
 
 /**
- * Resolve the classifier's chosen trace step to its stored screenshot key. keyStepIndex is the step's `order`
- * as shown in the trace (`N. [interaction] status`); match on that rather than array position so it holds even
- * if orders are not a contiguous 1..N. Prefer the after-frame (the settled state), fall back to the before-frame.
+ * Resolve a trace step's `order` to its stored screenshot key. The order is what the trace prints (`N. [interaction]
+ * status`) and what `view_step_details` addresses, so match on it rather than array position - it holds even if orders
+ * are not a contiguous 1..N. Prefer the after-frame (the settled state), fall back to the before-frame.
  */
+function stepScreenshotKey(attempts: AttemptRow[], order: number): string | undefined {
+    const step = attempts.find((attempt) => attempt.order === order);
+    return step?.screenshotAfter ?? step?.screenshotBefore ?? undefined;
+}
+
 function resolveKeyScreenshot(attempts: AttemptRow[], keyStepIndex: number | undefined): string | undefined {
     if (keyStepIndex == null) return undefined;
-    const step = attempts.find((attempt) => attempt.order === keyStepIndex);
-    if (step == null) return undefined;
-    return step.screenshotAfter ?? step.screenshotBefore ?? undefined;
+    return stepScreenshotKey(attempts, keyStepIndex);
+}
+
+/** Resolve each evidence item's model-emitted `stepIndex` to that step's frame key, so a screenshot/video item
+ * carries the still it cites. Items with no `stepIndex` (code/diff/run, or an unpinned screenshot) carry no frame. */
+function resolveEvidenceFrames(evidence: Evidence[], attempts: AttemptRow[]): InvestigationEvidence[] {
+    return evidence.map((item) => ({
+        source: item.source,
+        detail: item.detail,
+        repo: item.repo,
+        file: item.file,
+        lines: item.lines,
+        snippet: item.snippet,
+        frameUrl: item.stepIndex != null ? stepScreenshotKey(attempts, item.stepIndex) : undefined,
+    }));
 }
 
 /**

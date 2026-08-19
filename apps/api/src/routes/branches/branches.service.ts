@@ -41,6 +41,7 @@ import {
     buildPrPageUrl,
     type EvidenceManifestEntry,
     extractEvidenceAssetIds,
+    type InvestigationEvidence,
     type InvestigationFinding,
     type InvestigationRunStep,
     type MainOpenProblem,
@@ -726,17 +727,28 @@ export class BranchesService extends Service {
         return { ...signed, classifications };
     }
 
-    /** Re-sign a finding's stored s3:// screenshot/video keys (finding media + every run-trace step) into URLs. */
+    /** Re-sign a finding's stored s3:// screenshot/video keys (finding media, every run-trace step, and each
+     * evidence item's cited frame) into URLs. */
     private async signFindingMedia<T extends InvestigationFinding>(finding: T): Promise<T> {
         const sign = (key: string | undefined) =>
             key != null ? this.storageProvider.getSignedUrl(key, INVESTIGATION_MEDIA_TTL_SECONDS) : undefined;
-        const [keyScreenshotUrl, videoUrl, optimizedVideoUrl, runTrace] = await Promise.all([
+        const [keyScreenshotUrl, videoUrl, optimizedVideoUrl, runTrace, evidence] = await Promise.all([
             sign(finding.keyScreenshotUrl),
             sign(finding.videoUrl),
             sign(finding.optimizedVideoUrl),
             finding.runTrace != null ? Promise.all(finding.runTrace.map((step) => this.signStep(step))) : undefined,
+            Promise.all(finding.evidence.map((item) => this.signEvidenceFrame(item))),
         ]);
-        return { ...finding, keyScreenshotUrl, videoUrl, optimizedVideoUrl, runTrace };
+        return { ...finding, keyScreenshotUrl, videoUrl, optimizedVideoUrl, runTrace, evidence };
+    }
+
+    /** Sign one evidence item's cited frame key; the rest of the item passes through untouched. */
+    private async signEvidenceFrame(item: InvestigationEvidence): Promise<InvestigationEvidence> {
+        if (item.frameUrl == null) return item;
+        return {
+            ...item,
+            frameUrl: await this.storageProvider.getSignedUrl(item.frameUrl, INVESTIGATION_MEDIA_TTL_SECONDS),
+        };
     }
 
     /** Sign one run-trace step's stored screenshot key; the coordinates and labels pass through untouched. */

@@ -307,9 +307,14 @@ export type OpenAnalysisRunOutput =
 export interface InvestigationEvidence {
     source: string;
     detail: string;
+    /** `owner/repo` when the cited file lives in a dependency repo; absent for the primary repo. */
+    repo?: string;
     file?: string;
     lines?: string;
     snippet?: string;
+    /** For a screenshot/video item: the s3:// key of the run frame it cites (resolved from the classifier's step
+     * index at persist time), signed on read. Absent when the item cites no single frame. */
+    frameUrl?: string;
 }
 export interface InvestigationVerdict {
     category: string;

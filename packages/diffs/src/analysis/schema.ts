@@ -38,6 +38,15 @@ export const Evidence = z.object({
     file: z.string().optional().describe("repo-relative path (when source=code/diff)."),
     lines: z.string().optional().describe("line range, e.g. '34-41'."),
     snippet: z.string().optional().describe("the exact code excerpt that matters."),
+    stepIndex: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+            "For source=screenshot/video: the trace step's `order` whose captured frame this item cites, so the " +
+                "report can render it inline. Same convention as keyStepIndex. Omit for code/diff/run evidence.",
+        ),
 });
 export type Evidence = z.infer<typeof Evidence>;
 

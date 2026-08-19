@@ -9,6 +9,10 @@ interface Point {
 
 export type OverlayPoint = Point & { role: "click" | "drag-start" | "drag-end" };
 
+/** A stable empty default for the `points` prop: a fresh `[]` each render would change the overlay effect's
+ * dependency every render and spin it into an infinite setState loop for a points-less screenshot. */
+const NO_POINTS: OverlayPoint[] = [];
+
 interface OutputWithPossiblePoints {
   point?: Point;
   startPoint?: Point;
@@ -193,7 +197,7 @@ export function ScreenshotWithOverlay({
   onClick,
 }: ScreenshotWithOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const overlay = useOverlayPositions(containerRef, points ?? [], screenResolution);
+  const overlay = useOverlayPositions(containerRef, points ?? NO_POINTS, screenResolution);
   // Pin the signed src so a re-sign does not re-fetch the frame (and drop the computed overlay) on every poll.
   const stableSrc = useStableSignedUrl(src);
 
@@ -202,7 +206,7 @@ export function ScreenshotWithOverlay({
       <img src={stableSrc} alt={alt} className={imgClassName} onLoad={overlay.recalculate} />
       {overlay.hasPoints && (
         <PointMarkers
-          points={points ?? []}
+          points={points ?? NO_POINTS}
           screenResolution={screenResolution}
           size={overlaySize}
           containerRef={containerRef}

@@ -61,6 +61,70 @@ const baseFinding: InvestigationFinding = {
 
 const backLink = <span className="font-mono text-2xs">←</span>;
 
+/** The run frame a screenshot evidence item cites - inline SVG so the component story needs no network. */
+const RUN_FRAME = `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='820' viewBox='0 0 1200 820'>
+    <rect width='1200' height='820' fill='#f5f6f8'/>
+    <rect width='1200' height='48' fill='#e6e8ec'/>
+    <circle cx='28' cy='24' r='6' fill='#ff5f57'/><circle cx='50' cy='24' r='6' fill='#febc2e'/><circle cx='72' cy='24' r='6' fill='#28c840'/>
+    <rect x='110' y='14' width='980' height='20' rx='10' fill='#ffffff'/>
+    <text x='128' y='29' font-family='sans-serif' font-size='12' fill='#8a94a6'>app.acme.example.com/settings/profile</text>
+    <rect x='360' y='140' width='480' height='540' rx='12' fill='#ffffff' stroke='#e2e5ea'/>
+    <text x='400' y='200' font-family='sans-serif' font-size='24' font-weight='600' fill='#1f2430'>Edit profile</text>
+    <text x='400' y='250' font-family='sans-serif' font-size='13' fill='#6b7280'>Display name</text>
+    <rect x='400' y='262' width='400' height='40' rx='8' fill='#f0f2f5' stroke='#d7dbe2'/>
+    <text x='416' y='287' font-family='sans-serif' font-size='14' fill='#1f2430'>Ada Lovelace</text>
+    <text x='400' y='332' font-family='sans-serif' font-size='13' fill='#6b7280'>Email</text>
+    <rect x='400' y='344' width='400' height='40' rx='8' fill='#f0f2f5' stroke='#d7dbe2'/>
+    <text x='416' y='369' font-family='sans-serif' font-size='14' fill='#1f2430'>ada@acme.example.com</text>
+    <rect x='400' y='470' width='400' height='48' rx='8' fill='#c7ccd6'/>
+    <text x='600' y='500' text-anchor='middle' font-family='sans-serif' font-size='16' font-weight='600' fill='#8a90a0'>Save changes</text>
+    <text x='400' y='548' font-family='sans-serif' font-size='12' fill='#e0564b'>Save stays greyed out even though every field is valid</text>
+  </svg>`,
+)}`;
+
+/**
+ * A `client_bug` whose evidence cites a run frame: the screenshot-source card renders the cited still inline
+ * (thumbnail -> lightbox) instead of describing it in prose alone, alongside the code card that proves the cause.
+ */
+export const ScreenshotEvidence: Story = {
+  args: {
+    finding: {
+      id: "save-button-stays-disabled-md",
+      slug: "save-button-stays-disabled-md",
+      category: "client_bug",
+      confidence: "high",
+      planFidelity: "exact",
+      stepCount: 14,
+      headline: "Save button stays disabled after every profile field is filled",
+      expectedBehavior:
+        "After the display name and email are edited to valid values, the Save button should enable so the profile change can be submitted.",
+      actualBehavior:
+        "The Save button stays greyed out with every field valid, so the edit can never be saved - the run ended with the change unsubmitted.",
+      falsePositiveRisk:
+        "The button is disabled by a real code path (validity computed once at mount), not a designed guard, and the fields shown are all valid - so this is a genuine break, not the app working as intended.",
+      evidence: [
+        {
+          source: "screenshot",
+          detail:
+            "Step 12's final screenshot shows every field filled with valid values while the Save button is still greyed out.",
+          frameUrl: RUN_FRAME,
+        },
+        {
+          source: "code",
+          detail: "Form validity is computed once at mount and never recomputed after the async email check resolves.",
+          file: "components/settings/profile-form.tsx",
+          lines: "18-24",
+          snippet:
+            "const [formValid] = useState(() => isFormValid(form));\n// never recomputed after validateEmail() resolves\nreturn <button disabled={!formValid}>Save changes</button>;",
+        },
+      ],
+      videoUrl: "https://assets.autonoma.app/test-generation/demo/video.webm",
+    },
+    backLink,
+  },
+};
+
 /** With an optimized recording: the run recording shows the Optimized/Original toggle bottom-left. */
 export const WithOptimizedToggle: Story = {
   args: {

@@ -321,7 +321,7 @@ async function signClassification(
         remediation: selected.remediation,
         rootCause: selected.rootCause,
         falsePositiveRisk: selected.falsePositiveRisk,
-        evidence: parseEvidence(selected.evidence),
+        evidence: await signEvidenceFrames(storage, parseEvidence(selected.evidence)),
         keyScreenshotUrl:
             selected.screenshotKey != null
                 ? await storage.getSignedUrl(selected.screenshotKey, MEDIA_TTL_SECONDS)
@@ -334,6 +334,19 @@ const evidenceListSchema = z.array(investigationEvidenceSchema);
 
 function parseEvidence(evidence: PrismaJson.InvestigationEvidenceList | undefined): InvestigationEvidence[] {
     return evidenceListSchema.safeParse(evidence).data ?? [];
+}
+
+/** Sign each evidence item's stored `frameUrl` (an s3:// key) into a browser-openable URL, next to the other media. */
+async function signEvidenceFrames(
+    storage: StorageProvider,
+    evidence: InvestigationEvidence[],
+): Promise<InvestigationEvidence[]> {
+    return Promise.all(
+        evidence.map(async (item) => ({
+            ...item,
+            frameUrl: await signIfPresent(storage, item.frameUrl ?? null),
+        })),
+    );
 }
 
 async function buildGeneration(

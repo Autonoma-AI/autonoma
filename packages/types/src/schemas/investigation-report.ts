@@ -15,6 +15,14 @@ export const investigationEvidenceSchema = z.object({
     file: z.string().optional(),
     lines: z.string().optional(),
     snippet: z.string().optional(),
+    /**
+     * The run frame this item cites, when its `source` is `screenshot`/`video` and the classifier named the
+     * trace step it was describing: the finding page renders it inline on the evidence card. Carries the raw
+     * s3:// key at persist time (resolved from the classifier's step index); the API signs it on read, like the
+     * finding's other media. Absent when the item cites no frame (code/diff/run evidence, or a screenshot the
+     * classifier described without pinning a step).
+     */
+    frameUrl: z.string().optional(),
 });
 export type InvestigationEvidence = z.infer<typeof investigationEvidenceSchema>;
 

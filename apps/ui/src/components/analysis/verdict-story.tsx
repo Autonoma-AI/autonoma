@@ -10,6 +10,7 @@ import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { VideoCameraIcon } from "@phosphor-icons/react/VideoCamera";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { CodeBlock, evidencePermalink } from "components/investigation/code-block";
+import { ScreenshotLightbox } from "components/screenshot-lightbox";
 import { type ComponentType, type ReactNode, useState } from "react";
 
 /** The section-title icon size, so every verdict-story heading marks its section at the same scale. */
@@ -355,6 +356,17 @@ function EvidenceItem({
           ))}
       </div>
       {item.detail !== "" && <p className="px-3 pb-2 text-sm leading-relaxed text-text-secondary">{item.detail}</p>}
+      {item.frameUrl != null && (
+        <div className="px-3 pb-3">
+          <span className="inline-block w-fit overflow-hidden rounded border border-border-dim">
+            <ScreenshotLightbox
+              src={item.frameUrl}
+              alt={`Run frame cited by this ${item.source} evidence`}
+              className="h-40 w-auto"
+            />
+          </span>
+        </div>
+      )}
       {hasSnippet && (
         <div className="px-3 pb-3">
           <CodeBlock code={snippet} file={item.file} lines={item.lines} permalink={permalink} />

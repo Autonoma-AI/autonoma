@@ -32,6 +32,7 @@ export const VerdictForModel = z.object({
                 file: declinable(z.string().min(1)),
                 lines: declinable(z.string().min(1)),
                 snippet: declinable(z.string().min(1)),
+                stepIndex: declinable(z.number().int()),
             }),
         )
         .min(1),
