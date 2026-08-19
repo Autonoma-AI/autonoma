@@ -109,9 +109,9 @@ export class BranchLedger {
         });
     }
 
-    /** Open bug issues with their derived covered-test set - the re-verification input. */
-    public async coveredTestsForOpenBugs(): Promise<CoveredIssue[]> {
-        const issues = await this.openIssues({ kind: analysisIssueKindSchema.enum.bug });
+    /** Every open issue with its derived covered-test set - the re-verification input, all kinds. */
+    public async coveredTestsForOpenIssues(): Promise<CoveredIssue[]> {
+        const issues = await this.openIssues();
         return issues.map((issue) => {
             const byTestCaseId = new Map<string, { testCaseId: string; slug: string }>();
             for (const finding of issue.coveredFindings) {

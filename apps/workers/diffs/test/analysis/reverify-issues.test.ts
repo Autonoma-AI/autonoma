@@ -155,7 +155,7 @@ class ReverifyHarness implements IntegrationHarness {
 }
 
 integrationTestSuite({
-    name: "reverifyOpenIssues (re-running the covering tests of a branch's open bugs)",
+    name: "reverifyOpenIssues (re-running the covering tests of a branch's open issues)",
     createHarness: () => ReverifyHarness.create(),
     cases: (test) => {
         test("selects every test an open bug issue covers, without starting a run", async ({ harness }) => {
@@ -201,11 +201,12 @@ integrationTestSuite({
             expect(reverified).toEqual([]);
         });
 
-        test("re-verifies only open bug-kind issues", async ({ harness }) => {
+        test("re-verifies open environment and scenario issues, not just bugs", async ({ harness }) => {
             const branch = await harness.seedBranch();
             await harness.assign(branch, "checkout");
             await harness.assign(branch, "cart");
             await harness.assign(branch, "profile");
+            // A resolved issue is settled: it never re-verifies, whatever its kind.
             await harness.seedIssue(branch, {
                 title: "Checkout was fixed already",
                 coveredSlugs: ["checkout"],
@@ -224,9 +225,9 @@ integrationTestSuite({
 
             const reverified = await harness.reverify(branch);
 
-            // Neither an environment nor a scenario problem is a claim about the application, so passing the covering
-            // test would settle nothing.
-            expect(reverified).toEqual([]);
+            // An open environment or scenario gap is re-run so a fix on the client's side can resolve it - the same
+            // loop the branch's open bugs get. The resolved issue stays settled.
+            expect(reverified.map((test) => test.slug).sort()).toEqual(["cart", "profile"]);
         });
 
         test("selects a test two open issues share once, naming both", async ({ harness }) => {
@@ -245,7 +246,7 @@ integrationTestSuite({
             expect(checkout?.reason).toContain("Cart empties on reload");
         });
 
-        test("does nothing on a branch with no open bug issues", async ({ harness }) => {
+        test("does nothing on a branch with no open issues", async ({ harness }) => {
             const branch = await harness.seedBranch();
             await harness.assign(branch, "checkout");
 

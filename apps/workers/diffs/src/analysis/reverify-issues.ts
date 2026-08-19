@@ -23,15 +23,16 @@ export interface ReverifiedTest {
 }
 
 /**
- * Select the covering tests of the branch's open bug-kind issues for the run set, so an issue whose bug has
- * actually been fixed can resolve.
+ * Select the covering tests of the branch's open issues (every kind - `bug`, `environment`, `scenario`) for the run
+ * set, so an issue whose underlying problem has actually been fixed can resolve.
  *
  * Selection is diff-scoped, and the Reporter's coverage guarantees only force a resolve/carry-forward decision for an
  * issue whose covering tests produced findings in the current run. An issue the diff does not touch is therefore left
- * untouched forever: the bug stays `open` and the branch's headline verdict stays pinned to `client_bug` long after
- * the fix landed. Re-running the covering tests is what closes that loop.
+ * untouched forever: it stays `open` long after the fix landed - a bug keeps the branch's headline verdict pinned to
+ * `client_bug`, and an environment/scenario gap keeps a stale "yours to fix" card on the PR comment. Re-running the
+ * covering tests is what closes that loop.
  *
- * An issue's covered set - the ledger's `coveredTestsForOpenBugs` - is taken **atomically**: a covering test the
+ * An issue's covered set - the ledger's `coveredTestsForOpenIssues` - is taken **atomically**: a covering test the
  * run's suite no longer assigns (or assigns without a plan) has nothing to run, and disqualifies its whole issue.
  * Only `finish`-time coverage (see `computeCoverageViolations`) decides anything, so a set that runs in part costs
  * coverage, never correctness.
@@ -43,9 +44,9 @@ export interface ReverifiedTest {
  * target assembly.
  */
 export async function reverifyOpenIssues({ db, snapshot }: ReverifyOpenIssuesParams): Promise<ReverifiedTest[]> {
-    const issues = await new AnalysisStore(db).forBranch(snapshot.branchId).coveredTestsForOpenBugs();
+    const issues = await new AnalysisStore(db).forBranch(snapshot.branchId).coveredTestsForOpenIssues();
     if (issues.length === 0) {
-        logger.info("Re-verification found no open bug issues on the branch");
+        logger.info("Re-verification found no open issues on the branch");
         return [];
     }
 
@@ -58,8 +59,8 @@ export async function reverifyOpenIssues({ db, snapshot }: ReverifyOpenIssuesPar
         const covered = resolveCoveredSet(issue, reverifiable);
         if (covered.tests.length === 0 || covered.missingSlugs.length > 0) {
             skippedIssues += 1;
-            // An operator's problem, not a passing detail: while a covering test is missing, this issue can only ever
-            // be closed by hand, and until it is the branch's verdict stays red.
+            // An operator's problem, not a passing detail: while a covering test is missing, this issue can only be
+            // closed by hand - a bug keeps the branch verdict red, an environment/scenario gap a stale PR card.
             logger.warn("Cannot re-verify an open issue: the run's suite does not cover it in full", {
                 extra: {
                     issueId: issue.issueId,
@@ -85,9 +86,9 @@ export async function reverifyOpenIssues({ db, snapshot }: ReverifyOpenIssuesPar
         testCaseId: candidate.testCaseId,
         reason: buildReason(candidate.issueTitles),
     }));
-    logger.info("Re-verification selected the covering tests of the branch's open bug issues", {
+    logger.info("Re-verification selected the covering tests of the branch's open issues", {
         extra: {
-            openBugIssues: issues.length,
+            openIssues: issues.length,
             skippedIssues,
             covered: candidates.size,
             slugs: reverified.map((test) => test.slug),

@@ -30,8 +30,8 @@ export interface SelectImpactTargetsParams {
  * Then it reuses the DiffsAgent (the same stateless selection the diffs job ran - diff + current suite, no prior-run
  * history, no carry-forward) to mark affected tests and author brand-new ones. A brand-new test is authored onto the
  * run's OWN snapshot via `addTest`; an affected test needs no suite write at all. Finally it adds the covering tests
- * of the branch's open bug-kind issues (see {@link reverifyOpenIssues}), which is what lets a fixed bug resolve
- * rather than sit open forever.
+ * of the branch's open issues of every kind (see {@link reverifyOpenIssues}), which is what lets a fixed bug - or a
+ * closed environment/scenario gap - resolve rather than sit open forever.
  *
  * The result is a target list of `(test, reason, origin)` - merge-imported, new, affected and re-verified tests
  * enter the Investigator fan-out identically, deduplicated by test, and each Investigator starts its own runs.
@@ -73,7 +73,7 @@ export async function selectImpactTargets({
             origin: "pre_existing" as const,
         })),
         ...selected,
-        // A re-verified test is a real suite member too - it is only in the run set because it once exposed the bug.
+        // A re-verified test is a real suite member too - it is only in the run set because it once exposed an open issue.
         ...reverified.map((test) => ({
             slug: test.slug,
             testCaseId: test.testCaseId,

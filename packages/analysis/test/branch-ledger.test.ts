@@ -51,7 +51,7 @@ analysisSuite({
             expect(issues[0]?.severity).toBe("low");
         });
 
-        test("coveredTestsForOpenBugs derives the covered set from attributed findings across snapshots", async ({
+        test("coveredTestsForOpenIssues derives the covered set from attributed findings across snapshots", async ({
             harness,
         }) => {
             const run = await harness.seedAnalysis();
@@ -75,7 +75,7 @@ analysisSuite({
                 data: { issueId: issue.id },
             });
 
-            const covered = await harness.store.forBranch(run.branchId).coveredTestsForOpenBugs();
+            const covered = await harness.store.forBranch(run.branchId).coveredTestsForOpenIssues();
             expect(covered).toHaveLength(1);
             const slugs = covered[0]?.coveredTests.map((test) => test.slug).sort();
             // `checkout` was attributed on two snapshots but covers once.

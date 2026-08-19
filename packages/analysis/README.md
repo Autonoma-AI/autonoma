@@ -35,7 +35,7 @@ const won = await analysis.close(outcome);                       // the Analysis
 const ledger = store.forBranch(branchId);
 await ledger.openIssues({ kind: "bug" });
 await ledger.openBugCount();
-await ledger.coveredTestsForOpenBugs();
+await ledger.coveredTestsForOpenIssues();
 await ledger.priorReports({ excludeSnapshotId, limit: PRIOR_REPORTS_LIMIT }); // limit is the exported shared bound
 await ledger.removedInvalidTests(); // tests prior runs removed as invalid_test - the Impact Analysis selector's history
 
