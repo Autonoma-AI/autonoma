@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.260819.3](https://github.com/Autonoma-AI/agent/compare/v1.260819.2...v1.260819.3) (2026-08-19)
+
+
+### Features
+
+* add transaction type enum values ([#2668](https://github.com/Autonoma-AI/agent/issues/2668)) ([588a520](https://github.com/Autonoma-AI/agent/commit/588a52076058b3d72e56d194654d6375ebe6b7fe))
+* **analysis:** render the run frame a screenshot evidence item cites ([#2645](https://github.com/Autonoma-AI/agent/issues/2645)) ([faed3ed](https://github.com/Autonoma-AI/agent/commit/faed3edcb1d11a9a7f56e6761a7e30b45267c41e))
+* **diffs:** give Impact Analysis the branch's history slice ([#2648](https://github.com/Autonoma-AI/agent/issues/2648)) ([c7f3497](https://github.com/Autonoma-AI/agent/commit/c7f349779307999596fb7b6239c75a0c39cf7450))
+* **grafana:** add per-org design-partner analysis dashboard ([#2666](https://github.com/Autonoma-AI/agent/issues/2666)) ([1854aa0](https://github.com/Autonoma-AI/agent/commit/1854aa05d6a2b1449032c925bc1642b101703a5e))
+* **previewkit:** apply config edits as an ordered operation list ([#2651](https://github.com/Autonoma-AI/agent/issues/2651)) ([2b86612](https://github.com/Autonoma-AI/agent/commit/2b86612056945ed223707edc8693ba4b88263b2d))
+* **terraform:** rate limit the auth endpoints at the CloudFront edge ([#2657](https://github.com/Autonoma-AI/agent/issues/2657)) ([2983944](https://github.com/Autonoma-AI/agent/commit/2983944bf0d16ab90197f8c5f9d2544274b6379f))
+* **terraform:** remove EKS agent gateway CloudFront distribution ([#2663](https://github.com/Autonoma-AI/agent/issues/2663)) ([5627ff7](https://github.com/Autonoma-AI/agent/commit/5627ff7bbb70f2d44580e46c9590d84bc7de96f1))
+* **ui:** admin Usage tab for per-PR AI cost and compute usage ([#2430](https://github.com/Autonoma-AI/agent/issues/2430)) ([bf174d3](https://github.com/Autonoma-AI/agent/commit/bf174d3dd616025e761a2233722eaa24d289325a))
+
+
+### Bug Fixes
+
+* **api:** backfill a seeded PreviewkitApp the config document never declared ([#2667](https://github.com/Autonoma-AI/agent/issues/2667)) ([e52a7f0](https://github.com/Autonoma-AI/agent/commit/e52a7f0acd3493b04b0176444e862cc6b274d84f))
+* **cli:** give the duplicate judge page context so it stops merging unrelated tests ([#2660](https://github.com/Autonoma-AI/agent/issues/2660)) ([0245ee4](https://github.com/Autonoma-AI/agent/commit/0245ee4092646fd8b0098e499f8d4da685e438a6))
+* **cli:** reap a finished-but-hung coding agent on headless handoffs ([#2642](https://github.com/Autonoma-AI/agent/issues/2642)) ([f8dd6e5](https://github.com/Autonoma-AI/agent/commit/f8dd6e5add4ded03b865af3b910241f8c957e404))
+* **cli:** show a resize notice when the terminal is too small for the dashboard ([#2661](https://github.com/Autonoma-AI/agent/issues/2661)) ([7572f64](https://github.com/Autonoma-AI/agent/commit/7572f64ae62f488d6baf54cab063ef1400554c4f))
+* **terraform:** stop tracking legacy.autonoma.app, now DDNS-managed ([#2658](https://github.com/Autonoma-AI/agent/issues/2658)) ([40bd2f6](https://github.com/Autonoma-AI/agent/commit/40bd2f68c228ba73713354e098cb221110143616))
+
+
+### Performance Improvements
+
+* **evals:** run diffs eval cases concurrently via per-case git worktrees ([#2633](https://github.com/Autonoma-AI/agent/issues/2633)) ([23acdd8](https://github.com/Autonoma-AI/agent/commit/23acdd89edf95697fd6ed3948a864d75ba75e3fc))
+
 ## [1.260819.2](https://github.com/Autonoma-AI/agent/compare/v1.260819.1...v1.260819.2) (2026-08-19)
 
 
