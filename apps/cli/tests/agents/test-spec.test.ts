@@ -113,6 +113,96 @@ describe("testSpecSchema", () => {
         expect(result.success).toBe(false);
     });
 
+    // The real residual, verbatim from the NetBird run: the placeholder gate scanned
+    // steps but not the setup line, so five tests shipped a run-unique id in their
+    // Setup navigation. The runner resolves no tokens in prose, so each navigates to a
+    // literal broken URL at run time - the original bug's family, in the field the
+    // step gate never covered.
+    it("rejects a run-unique token in the setup, the field the step gate never scanned", () => {
+        for (const setup of [
+            "Navigate to the Peer details page for the peer with hostname 'server-prod-1' (ID 'peer-{{testRunShortId}}-2').",
+            "Navigate to the SSH page for 'server-prod-1' (peer-{{testRunShortId}}-2) by appending query parameters peerId=peer-{{testRunShortId}}-2, username=admin, and port=22 to the /peer/ssh route.",
+            "Navigate to the User Details page for 'Charlie User' (id: 'usr-{{testRunShortId}}-user') by going to '/team/user?id=usr-{{testRunShortId}}-user'.",
+            "Navigate to the User Details page for 'Deploy Service' (id: 'usr-{{testRunShortId}}-service') by going to '/team/user?id=usr-{{testRunShortId}}-service&service_user=true'.",
+            "Navigate to the invite page using the token for Dave Developer (inv-{{testRunShortId}}-1).",
+        ]) {
+            const result = testSpecSchema.safeParse({ ...VALID, setup });
+            expect(result.success, setup).toBe(false);
+            expect(JSON.stringify(result.error?.issues), setup).toContain("setup");
+        }
+    });
+
+    it("rejects an unresolvable token in any shipped prose field, not just steps", () => {
+        const cases: { patch: Partial<TestSpec>; field: string }[] = [
+            { patch: { title: "Rename peer usr-{{testRunShortId}}-user" }, field: "title" },
+            {
+                patch: { description: "Verify the {{testRunShortId}} account can rename a peer." },
+                field: "description",
+            },
+            {
+                patch: {
+                    intent: "Renaming the peer for account acc-{{testRunShortId}} should persist the new name across a page reload and record it.",
+                },
+                field: "intent",
+            },
+            {
+                patch: {
+                    verification:
+                        "On the Peers page, assert the row for id peer-{{testRunShortId}}-2 shows the new name after a refresh.",
+                },
+                field: "verification",
+            },
+            {
+                patch: { expectedResult: "The peer usr-{{testRunShortId}}-user is renamed and the change persists." },
+                field: "expectedResult",
+            },
+        ];
+
+        for (const { patch, field } of cases) {
+            const result = testSpecSchema.safeParse({ ...VALID, ...patch });
+            expect(result.success, field).toBe(false);
+            expect(JSON.stringify(result.error?.issues), field).toContain(field);
+        }
+    });
+
+    it("accepts a setup that navigates by a stable on-screen name instead of a token-bearing id", () => {
+        // The corrected shape of the five rejected setups above.
+        const result = testSpecSchema.safeParse({
+            ...VALID,
+            setup: "The user is on the User Details page for 'Charlie User', reached from the Team > Users table.",
+        });
+
+        expect(result.success).toBe(true);
+    });
+
+    // False-positive guard: "e.g." is a step-only concreteness rule. Descriptive
+    // prose may use it, and gating it here would revive the 680-retry misfire the
+    // step comment warns about.
+    it('does not reject a legitimate "e.g." in a descriptive prose field', () => {
+        for (const patch of [
+            {
+                intent: "Filtering the peers list by an OS, e.g. Linux, should narrow the table to only matching rows and update the count.",
+            },
+            {
+                verification:
+                    "On the Peers page, assert the count reflects the filter, e.g. it shows fewer rows than before.",
+            },
+        ]) {
+            expect(testSpecSchema.safeParse({ ...VALID, ...patch }).success, JSON.stringify(patch)).toBe(true);
+        }
+    });
+
+    it('still rejects "e.g." in a step, the concreteness rule that stays step-scoped', () => {
+        const result = testSpecSchema.safeParse(
+            withSteps([
+                { verb: "type", description: 'a plan name, e.g. "Pro"', location: "in the field" },
+                { verb: "click", description: 'the "Save" button', location: "in the modal" },
+            ]),
+        );
+
+        expect(result.success).toBe(false);
+    });
+
     // The real bug, verbatim: the model copied the location guidance into the
     // description of every step of five journey files, past every existing refine.
     it("rejects a step whose description quotes the field guidance", () => {

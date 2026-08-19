@@ -18,9 +18,13 @@ import { CRITICALITY_LEVELS, requiresLocation, STEP_VERBS, type StepVerb } from 
  */
 
 /**
- * Placeholder SYNTAX a step may never contain. These are tokens, not prose - a
- * test carries no variables, so `{{x}}` or "Dynamic:" is unresolvable at run
- * time whatever the surrounding sentence says.
+ * Placeholder SYNTAX a test may never contain. These are tokens, not prose - a
+ * test carries no variables, so `{{x}}` or "Dynamic:" is unresolvable at run time
+ * whatever the surrounding sentence says. The runner resolves `{{var}}` only in a
+ * command's parameters against the recipe variables it was handed; the run-unique
+ * ids the seed data is built from (`{{testRunShortId}}`) are not among them, and no
+ * substitution ever runs over a test's free-text prose. So a token in prose - the
+ * setup line, the expected result - is shipped verbatim and breaks at run time.
  *
  * Nothing else here judges language. Rules about what a sentence MEANS - whether
  * a setup logs the user in, whether a step names two possible targets - belong to
@@ -30,16 +34,61 @@ import { CRITICALITY_LEVELS, requiresLocation, STEP_VERBS, type StepVerb } from 
  * page" and cost a run 680 retries and $11 for zero tests. A regex cannot
  * enumerate the ways a sentence can be fine.
  */
-const PLACEHOLDER_PATTERNS: { pattern: RegExp; name: string }[] = [
+const UNRESOLVABLE_TOKEN_PATTERNS: { pattern: RegExp; name: string }[] = [
     { pattern: /Dynamic:\s/i, name: '"Dynamic:" placeholder' },
     { pattern: /\{\{[a-zA-Z0-9_]+\}\}/, name: "{{token}} placeholder" },
     { pattern: /(?<!\{)\{[a-z][a-zA-Z]*\}(?!\})/, name: "bare {variable}" },
-    { pattern: /\be\.g\./i, name: '"e.g." example' },
 ];
+
+/**
+ * "e.g." is a STEP-only concreteness rule - a step must name the exact value, not
+ * an example. It is deliberately not part of the token family: descriptive prose
+ * (intent, verification) may legitimately say "e.g.", and a broad language pattern
+ * over prose is exactly the misfire the comment above paid 680 retries for, so it
+ * stays scoped to steps.
+ */
+const STEP_EXAMPLE_PATTERN = { pattern: /\be\.g\./i, name: '"e.g." example' };
+
+/** The full set a STEP is held to: the unresolvable tokens plus the example rule. */
+const PLACEHOLDER_PATTERNS = [...UNRESOLVABLE_TOKEN_PATTERNS, STEP_EXAMPLE_PATTERN];
 
 function hasPlaceholder(text: string | undefined): boolean {
     if (text == null) return false;
     return PLACEHOLDER_PATTERNS.some(({ pattern }) => pattern.test(text));
+}
+
+/**
+ * Whether a free-text field carries a run-unique placeholder token. The steps are
+ * held to the whole {@link PLACEHOLDER_PATTERNS} set; the prose fields (which render
+ * into the shipped markdown and, for the body ones, become the execution agent's
+ * literal instruction) are held only to the token family - the same tokens the step
+ * gate rejects, in the fields it never scanned.
+ */
+function hasUnresolvableToken(text: string | undefined): boolean {
+    if (text == null) return false;
+    return UNRESOLVABLE_TOKEN_PATTERNS.some(({ pattern }) => pattern.test(text));
+}
+
+const PROSE_TOKEN_MESSAGE =
+    "this field carries no variables - use the exact value from the test data, not a run-unique {{token}} the runner cannot resolve";
+
+// The setup's own failure mode is a token-bearing id or URL used to reach the
+// starting screen (`/team/user?id=usr-{{testRunShortId}}-user`); steer to the same
+// stable, on-screen anchor the steps already use instead.
+const SETUP_TOKEN_MESSAGE =
+    "the setup carries no variables - reach the starting screen by a stable, on-screen name (the seeded record's display name), never a token-bearing id or URL the runner cannot resolve";
+
+/**
+ * A prose field that ships in the test file, rejected if it carries an unresolvable
+ * token. `describe()` is applied last so the guidance survives on the refined schema
+ * (`schema.shape.field.description`) - a `.refine()` wrapper otherwise hides it.
+ */
+function proseField(minLength: number, describe: string, message: string = PROSE_TOKEN_MESSAGE) {
+    return z
+        .string()
+        .min(minLength)
+        .refine((text) => !hasUnresolvableToken(text), { message })
+        .describe(describe);
 }
 
 /**
@@ -113,36 +162,31 @@ export type TestStep = z.infer<typeof stepSchema>;
  */
 export function buildTestSpecSchema(validFlowIds?: ReadonlySet<string>) {
     return z.object({
-        title: z.string().min(1).describe("Short, descriptive test name."),
-        description: z.string().min(1).describe("One sentence explaining what the test verifies."),
-        intent: z
-            .string()
-            .min(30)
-            .describe(
-                "A specific, falsifiable claim derived from the node's mission: what the user does, what the feature produces, why it matters. Not the steps, not 'the page displays correctly'.",
-            ),
+        title: proseField(1, "Short, descriptive test name."),
+        description: proseField(1, "One sentence explaining what the test verifies."),
+        intent: proseField(
+            30,
+            "A specific, falsifiable claim derived from the node's mission: what the user does, what the feature produces, why it matters. Not the steps, not 'the page displays correctly'.",
+        ),
         criticality: z.enum(CRITICALITY_LEVELS),
         scenario: z.string().min(1).describe('Which scenario this test uses (usually "standard").'),
         flow: flowField(validFlowIds),
-        verification: z
-            .string()
-            .min(20)
-            .describe(
-                "WHERE to navigate and WHAT to assert to prove the mutation worked. Must name the source of truth - a toast, a confirmation dialog or an inline success indicator is an acknowledgment, not proof. When the test commits a create/edit/delete/save of a record that should PERSIST, this must reload (refresh) and re-assert the same entity/value/status - an in-page assertion right after a mutation can pass on an optimistic update that never persisted. Skip the reload for validation-blocked writes (nothing was created), pure navigation/auth, and ephemeral/real-time/session state.",
-            ),
-        setup: z
-            .string()
-            .min(1)
-            .describe(
-                "Which page the user starts on and how they got there. Never authentication - the user is already signed in.",
-            ),
+        verification: proseField(
+            20,
+            "WHERE to navigate and WHAT to assert to prove the mutation worked. Must name the source of truth - a toast, a confirmation dialog or an inline success indicator is an acknowledgment, not proof. When the test commits a create/edit/delete/save of a record that should PERSIST, this must reload (refresh) and re-assert the same entity/value/status - an in-page assertion right after a mutation can pass on an optimistic update that never persisted. Skip the reload for validation-blocked writes (nothing was created), pure navigation/auth, and ephemeral/real-time/session state.",
+        ),
+        setup: proseField(
+            1,
+            "Which page the user starts on and how they got there. Never authentication - the user is already signed in.",
+            SETUP_TOKEN_MESSAGE,
+        ),
         steps: z.array(stepSchema).min(1).describe("The action sequence, in order."),
         verificationSteps: z
             .array(stepSchema)
             .describe(
                 "Steps that navigate to the source of truth and assert the mutation landed. Implements the `verification` field above. For a persisted-record create/edit/delete/save, these must include a refresh followed by re-asserting the same entity/value/status - an in-page assertion right after the mutation can pass on an optimistic update that never persisted. Omit the reload for validation-blocked writes, pure navigation/auth, and ephemeral/real-time/session state, where a reload would prove nothing or be wrong.",
             ),
-        expectedResult: z.string().min(1).describe("What should be true when the test passes."),
+        expectedResult: proseField(1, "What should be true when the test passes."),
         notes: z
             .string()
             .optional()
