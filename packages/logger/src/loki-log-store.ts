@@ -63,6 +63,11 @@ const FILTER_MAX_LENGTH = 200;
 // response fails loudly instead of OOMing the process. Sized well above a
 // legitimate 1000-line page of realistic lines, but far below memory pressure.
 const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+// Ceiling on one `query_range` round trip. Reads run inside request handlers that
+// have their own deadline - an MCP tool call, an SSE route - and an unbounded fetch
+// against a wedged Loki would hold those open until the caller gives up, so a slow
+// store fails fast enough for the handler to answer without it.
+const QUERY_TIMEOUT_MS = 20_000;
 
 const queryRangeResponseSchema = z.object({
     status: z.literal("success"),
@@ -228,7 +233,9 @@ export class LokiLogStore implements LogStore {
      * would do before any line-count or byte budget downstream could apply).
      */
     private async queryRange(params: URLSearchParams): Promise<z.infer<typeof queryRangeResponseSchema>> {
-        const response = await fetch(`${this.baseUrl}/loki/api/v1/query_range?${params.toString()}`);
+        const response = await fetch(`${this.baseUrl}/loki/api/v1/query_range?${params.toString()}`, {
+            signal: AbortSignal.timeout(QUERY_TIMEOUT_MS),
+        });
         if (!response.ok) {
             const body = await response.text();
             throw new Error(`Loki query_range failed: ${response.status} ${body}`);

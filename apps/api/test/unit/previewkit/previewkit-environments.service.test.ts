@@ -1,7 +1,9 @@
+import { DEFAULT_REQUEST_TIMEOUT_MSEC } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { describe, expect, it } from "vitest";
 import {
     type DeployProgress,
     deployOutcomeAtBudget,
+    MAX_WAIT_SECONDS,
     toEnvironmentStatus,
 } from "../../../src/previewkit/previewkit-environments.service";
 
@@ -88,5 +90,18 @@ describe("deployOutcomeAtBudget", () => {
         const app = progress({ watchedIsApp: true, watchedStatus: "build_failed", watchedUpdatedAt: longAgo });
         expect(deployOutcomeAtBudget(app, NOW)).toBe("idle");
         expect(deployOutcomeAtBudget({ ...app, watchedIsApp: false }, NOW)).toBe("in_progress");
+    });
+});
+
+describe("MAX_WAIT_SECONDS", () => {
+    it("leaves an MCP client room to receive the answer before it gives up on the request", () => {
+        // A blocking wait sends no progress notifications, so the client's deadline runs
+        // uninterrupted from the moment it sends the call. Overshooting it is silently
+        // expensive: the client reports a timeout while the server runs to completion and
+        // records the call as a success. The budget is only part of what the caller waits
+        // for - a final status read and the log tail attached to the answer land on top -
+        // so the ceiling has to clear the deadline by more than a rounding error.
+        const headroomMs = 5_000;
+        expect(MAX_WAIT_SECONDS * 1000 + headroomMs).toBeLessThanOrEqual(DEFAULT_REQUEST_TIMEOUT_MSEC);
     });
 });

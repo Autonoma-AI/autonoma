@@ -7,11 +7,21 @@ import { sleep } from "@autonoma/utils/sleep";
 const TERMINAL_ENV_STATUSES = new Set(["ready", "failed", "torn_down"]);
 /** App-instance statuses at which one service's (re)deploy has settled. */
 const TERMINAL_APP_STATUSES = new Set(["ready", "build_failed", "deploy_failed", "skipped"]);
-/** Default server-side wait budget; kept under a typical 60s proxy read timeout so the call returns cleanly. */
+/** Default server-side wait budget when the caller names none. */
 const DEFAULT_WAIT_MS = 45_000;
-/** Hard ceiling on one wait call's budget - the agent re-calls to keep waiting past this. */
-const MAX_WAIT_MS = 55_000;
-/** Poll interval while waiting for a terminal state. */
+/**
+ * Hard ceiling on one wait call's budget - the agent re-calls to keep waiting past this.
+ *
+ * The binding constraint is the CALLER's deadline, not ours: an MCP client using the
+ * TypeScript SDK gives up on a request after `DEFAULT_REQUEST_TIMEOUT_MSEC` (60s), and
+ * a blocking wait sends no progress notifications to extend it. Overshooting that is
+ * worse than returning early - the agent sees a timeout error while this call runs to
+ * completion and is recorded as a success - so the ceiling leaves room for the final
+ * status read and the caller's own log tail on top.
+ */
+export const MAX_WAIT_SECONDS = 50;
+const MAX_WAIT_MS = MAX_WAIT_SECONDS * 1000;
+/** Poll interval while waiting for a terminal state, clamped so a sleep never outlives the budget. */
 const WAIT_POLL_MS = 4_000;
 /**
  * How long a terminal target must have sat untouched before a wait calls it idle
@@ -189,7 +199,7 @@ export class PreviewkitEnvironmentsService {
                 });
                 return toWaitResult(latest, outcome);
             }
-            await sleep(WAIT_POLL_MS);
+            await sleep(Math.min(WAIT_POLL_MS, deadline - Date.now()));
             const next = await this.readDeployProgress(repoFullName, prNumber, appName, callerOrgId);
             if (next == null) return undefined;
             latest = next;

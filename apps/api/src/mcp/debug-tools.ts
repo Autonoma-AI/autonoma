@@ -5,6 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { MergeGateService } from "../github/merge-gate.service";
 import { type DeployFreshness, deployFreshness } from "../previewkit/deploy-freshness";
+import { MAX_WAIT_SECONDS } from "../previewkit/previewkit-environments.service";
 import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
 import type { Services } from "../routes/build-services";
 import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
@@ -644,7 +645,8 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "outcome - so after set_secret or edit_previewkit_config trigger a rebuild, you can wait here and " +
                 "then keep debugging. Pass the `app` you just changed to watch that service's rebuild (recommended); " +
                 "omit it to watch the whole environment (e.g. after a fresh deploy). It waits server-side up to ~45s " +
-                "per call and returns one of three `outcome`s. `deployed`: a deploy finished during the wait - check " +
+                `per call (${MAX_WAIT_SECONDS}s with an explicit \`timeoutSeconds\`) and returns one of three ` +
+                "`outcome`s. `deployed`: a deploy finished during the wait - check " +
                 "`appStatus`/`status` for a *_failed status and, if it failed, use get_build_logs / get_app_logs / " +
                 "diagnose_deploy to find out why. `idle`: nothing was deploying at all (the environment was already " +
                 "terminal and long untouched, see `lastChangedAt`) - STOP, calling again returns the same thing, and " +
@@ -655,7 +657,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
             inputSchema: {
                 ...targetPrInput,
                 app: appNameSchema(),
-                timeoutSeconds: z.number().int().min(5).max(55).optional(),
+                timeoutSeconds: z.number().int().min(5).max(MAX_WAIT_SECONDS).optional(),
             },
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
