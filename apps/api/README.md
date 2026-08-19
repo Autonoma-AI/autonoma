@@ -445,6 +445,13 @@ and `userId` in that `deleteMany`'s WHERE are the authorization - the ids are ca
 left behind is surfaced by `apiKeys.list` as `ownerLeft`, which is what stops a credential held by
 somebody outside the organization sitting on that screen indistinguishable from a colleague's.
 
+**This API does not rate limit itself - the WAF on the CloudFront distribution does.** Better Auth's
+built-in limiter is switched off explicitly (`rateLimit.enabled: false`), because it keys on the client
+address in `X-Forwarded-For` and refuses to trust the multi-hop chain that arrives through CloudFront
+and the ALB: it then falls back to a single bucket shared by the whole deployment and answers 429 to
+every user at once, sign-in included. Leaving the option out is not the same as this - Better Auth
+enables the limiter by default in production.
+
 The `organization()` better-auth plugin's own membership endpoints (`invite-member`,
 `accept-invitation`, `add-member`, `leave`, `set-active`, ...) are refused in the `hooks.before` middleware: they
 bypass the invitation checks, the leave guards and the session re-pointing above. Its read endpoints

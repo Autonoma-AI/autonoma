@@ -677,9 +677,15 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
                 },
             },
         },
+        // Rate limiting belongs to the WAF on the CloudFront distribution in front of
+        // this API, not here. Better Auth keys its own limiter on the client address it
+        // reads out of X-Forwarded-For, and it will not trust a multi-hop chain - which
+        // is what arrives through CloudFront and the ALB - so it silently falls back to
+        // ONE bucket shared by the entire deployment and starts answering 429 to
+        // everybody. This must stay explicit: with the option absent Better Auth turns
+        // its limiter on by default in production, at 100 requests per 10 seconds.
         rateLimit: {
-            window: 60000,
-            max: 10000,
+            enabled: false,
         },
         session: {
             // Redis stays the read path; this makes Postgres the durable copy behind it.
