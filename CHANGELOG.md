@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.260819.1](https://github.com/Autonoma-AI/agent/compare/v1.260818.3...v1.260819.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* **blacklight:** pin signed media URLs so polling does not reload video/frames ([#2610](https://github.com/Autonoma-AI/agent/issues/2610)) ([850ef8e](https://github.com/Autonoma-AI/agent/commit/850ef8efdce0003788bbdc875112004df88a9f84))
+* **db:** drop the dead AnalysisReport and AnalysisIssue columns ([#2036](https://github.com/Autonoma-AI/agent/issues/2036)) ([#2584](https://github.com/Autonoma-AI/agent/issues/2584)) ([2f9400d](https://github.com/Autonoma-AI/agent/commit/2f9400da172883648b086e3312cee5e5ee7a8a6f))
+* **terraform:** move API's KMS/EKS access off the deleted agent-api user ([#2635](https://github.com/Autonoma-AI/agent/issues/2635)) ([d3345ab](https://github.com/Autonoma-AI/agent/commit/d3345ab50bc15b5a41a7fc6f2808db04f1514c48))
+* **ui:** render plan markdown, and stop claiming 'no tests' mid-selection ([#2641](https://github.com/Autonoma-AI/agent/issues/2641)) ([e6ed34c](https://github.com/Autonoma-AI/agent/commit/e6ed34c1ec3d616a0c2863231c4ec5e57b39b3b0))
+
 ## [1.260818.3](https://github.com/Autonoma-AI/agent/compare/v1.260818.2...v1.260818.3) (2026-08-18)
 
 
