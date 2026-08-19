@@ -2810,10 +2810,6 @@ model AnalysisClassification {
   remediation       String?  @db.Text
   rootCause         String?  @map("root_cause") @db.Text
   falsePositiveRisk String?  @map("false_positive_risk") @db.Text
-  /// Retired: a copy of the immutable `test_plan` its generation pins (the plan the classifier judged), now read
-  /// through the generation FK. Neither written nor read; the historical copies just wait for the DROP, which rides
-  /// a follow-up migration one deploy later.
-  plan              String?  @db.Text
   runSuccess        Boolean? @map("run_success")
   stepCount         Int?     @map("step_count")
 
@@ -2825,15 +2821,10 @@ model AnalysisClassification {
   /// [InvestigationEvidenceList]
   evidence Json?
 
-  /// Retired: verbatim copies of `generation.videoUrl` / `generation.optimizedVideoUrl`, now read straight off the
-  /// generation FK. Neither written nor read; the historical copies just wait for the DROP, which rides a follow-up
-  /// migration one deploy later.
-  videoKey          String? @map("video_key")
-  optimizedVideoKey String? @map("optimized_video_key")
   /// The classifier-CHOSEN key frame (distinct from `generation.finalScreenshot`); `s3://` key, signed on read.
-  screenshotKey     String? @map("screenshot_key")
+  screenshotKey String? @map("screenshot_key")
   /// Short GIF clip of the failure (client bugs only).
-  clipKey           String? @map("clip_key")
+  clipKey       String? @map("clip_key")
 
   /// `s3://` URL of the classifier's persisted LLM conversation (the reasoning that produced THIS iteration's
   /// verdict), signed on read. Best-effort at write and display-only: absent when the upload failed and on a

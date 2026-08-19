@@ -199,16 +199,14 @@ integrationTestSuite({
             expect(finding?.classifications).toHaveLength(2);
             expect(finding?.currentClassification?.category).toBe("plan_mismatch");
 
+            // Each iteration pins its own generation - the plan is resolved from that generation on read, never
+            // copied onto the classification row.
             const [first, latest] = finding?.classifications ?? [];
             expect(first?.category).toBe("plan_mismatch");
             expect(first?.generationId).toBe(generationIds[0]);
             expect(first?.conversationUrl).toBe("s3://conversations/pass-1.json");
-            // Each iteration pins its own generation, and the plan is resolved from that generation on read - it is
-            // no longer copied onto the classification row.
-            expect(first?.plan).toBeNull();
             expect(latest?.generationId).toBe(generationIds[1]);
             expect(latest?.conversationUrl).toBe("s3://conversations/pass-2.json");
-            expect(latest?.plan).toBeNull();
         });
 
         // Several readers infer a self-heal from how many classifications a test has, so filing the same iteration
