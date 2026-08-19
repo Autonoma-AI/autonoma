@@ -2,7 +2,13 @@ import { Agent, type AgentTool, type LanguageModel, type ModelMessage } from "@a
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { Codebase } from "../../codebase";
 import { buildRepoManifestSection } from "../../codebase";
-import type { DiffAnalysis, ExistingTestInfo, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
+import type {
+    BranchHistory,
+    DiffAnalysis,
+    ExistingTestInfo,
+    MergeContextInfo,
+    PreClassifiedConflictInfo,
+} from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
 import { readPrChangedFiles, readPrCommitSubjects } from "../../pr-range";
 import type { ScenarioIndex } from "../../scenario-index";
@@ -65,6 +71,13 @@ export interface DiffsAgentInput {
      * scope references a scenario with a usable recipe.
      */
     scenarioRecipes?: ScenarioRecipeData[];
+    /**
+     * A bounded slice of the branch's analysis history - the tests prior runs removed as `invalid_test`, the
+     * branch's recent Reporter reports, and its open bug-kind issues. Lets the selector avoid re-authoring a test
+     * already thrown away and weight its choices with what has gone wrong on the branch. Absent on a brand-new
+     * branch, where selection is identical to a stateless run.
+     */
+    branchHistory?: BranchHistory;
 }
 
 export interface DiffsAgentResult {
@@ -122,6 +135,7 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
             preClassifiedConflicts: input.preClassifiedConflicts ?? [],
             testScopeGuidelines: input.testScopeGuidelines,
             scenarioRecipes: input.scenarioRecipes ?? [],
+            branchHistory: input.branchHistory,
         });
 
         // A backend/dependency change can move which tests are affected, so surface the pinned dependency repos

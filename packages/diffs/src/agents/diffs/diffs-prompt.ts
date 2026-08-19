@@ -1,6 +1,7 @@
-import type { DiffAnalysis, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
+import type { BranchHistory, DiffAnalysis, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
 import { buildPlanAuthoringContext } from "../../plan-authoring";
+import { MAX_PRIOR_REPORT_CHARS, truncate } from "../../prompt-truncate";
 import { type ScenarioRecipeData, summarizeScenarioRecipes } from "../../scenario-recipe";
 
 /**
@@ -21,6 +22,9 @@ export interface DiffsPromptInput {
     testScopeGuidelines?: string;
     /** Recipe templates for the scenarios the tests in scope reference. Empty when none apply. */
     scenarioRecipes: ScenarioRecipeData[];
+    /** A bounded slice of the branch's analysis history. Absent on a brand-new branch, where the prompt is
+     * byte-identical to a stateless run. */
+    branchHistory?: BranchHistory;
 }
 
 /**
@@ -30,6 +34,7 @@ export interface DiffsPromptInput {
  */
 export function buildDiffsUserPrompt(input: DiffsPromptInput): string {
     const { analysis, range, flowIndex, merges, preClassifiedConflicts, testScopeGuidelines, scenarioRecipes } = input;
+    const branchHistory = input.branchHistory;
 
     const planAuthoringContext = buildPlanAuthoringContext({
         flows: flowIndex.listFlows().map((f) => ({
@@ -92,6 +97,11 @@ Explore the patch yourself with \`bash\`, scoping to what you need rather than p
     const recipeSummary = summarizeScenarioRecipes(scenarioRecipes);
     if (recipeSummary != null) {
         prompt += `\n\n## Scenario Recipes (test data templates)\n${recipeSummary}`;
+    }
+
+    if (branchHistory != null) {
+        const historySection = renderBranchHistory(branchHistory);
+        if (historySection !== "") prompt += `\n\n${historySection}`;
     }
 
     if (flowIndex.listFlows().length > 0) {
@@ -165,6 +175,66 @@ You are the sole author of new tests in this flow. Each \`create_test\` mints a 
 4. Identify potentially affected tests by passing every candidate slug to \`read_tests\` in one call, then \`mark_affected_test\` for each affected one
 5. Identify test gaps and author new tests with \`create_test\` - browse the suite first to ground the coverage justification, and bind a \`scenarioId\` when the test needs seeded data
 6. Call \`finish\` with your overall reasoning - even if no actions were needed (e.g. pure refactors), explain why`;
+
+/**
+ * The branch's prior-analysis history, framed as work already done - NOT as verdicts to reproduce. Each subsection
+ * is rendered only when it has rows, and the whole block collapses to `""` when the branch has no history at all,
+ * so a brand-new branch's prompt is byte-identical to a stateless run's. The priming guard is deliberate: the
+ * heading and lead-ins tell the agent this is prior work to avoid duplicating, never an expected finding to chase.
+ */
+function renderBranchHistory(history: BranchHistory): string {
+    const sections: string[] = [];
+
+    if (history.removedTests.length > 0) {
+        const rows = history.removedTests
+            .map((t) => `- **${t.name}** (\`${t.slug}\`)${t.reason != null ? `: ${t.reason}` : ""}`)
+            .join("\n");
+        sections.push(
+            "### Tests already removed as invalid - do NOT re-create these\n" +
+                "Each was authored on an earlier run and then removed because a prior analysis judged its target " +
+                "feature/flow does not exist, so it can never pass. They are deliberately absent from the Existing " +
+                "Tests list. Do not author a new test for the same behavior - only re-create one if THIS diff " +
+                "genuinely reintroduces the feature, and say so in your reasoning when you do.\n" +
+                rows,
+        );
+    }
+
+    if (history.openIssues.length > 0) {
+        const rows = history.openIssues
+            .map((issue) => {
+                const covers = issue.coveredSlugs.length > 0 ? ` (covered by: ${issue.coveredSlugs.join(", ")})` : "";
+                return `- **${issue.title}** - ${issue.actualBehavior}${covers}`;
+            })
+            .join("\n");
+        sections.push(
+            "### Open issues on this branch (known problem areas)\n" +
+                "Problems earlier runs already recorded on this branch. Their covering tests are re-verified " +
+                "automatically, so you do NOT need to reproduce or re-cover them - use these only to understand " +
+                "where the branch has been fragile when weighing what the diff affects.\n" +
+                rows,
+        );
+    }
+
+    if (history.priorReports.length > 0) {
+        const rows = history.priorReports
+            .map((r) => `#### Report for ${r.snapshotId}\n${truncate(r.report, MAX_PRIOR_REPORT_CHARS)}`)
+            .join("\n\n");
+        sections.push(
+            "### Recent reports on this branch (for continuity)\n" +
+                "The prior runs' holistic narratives, newest first - background on what this branch is doing and " +
+                "what has been going wrong. Not a checklist.\n" +
+                rows,
+        );
+    }
+
+    if (sections.length === 0) return "";
+    return (
+        "## Branch history (prior analysis of THIS branch)\n" +
+        "What earlier runs of this branch already did - context so you do not repeat work, NOT verdicts to " +
+        "reproduce. The diff and the current suite remain the authority on what to select.\n\n" +
+        sections.join("\n\n")
+    );
+}
 
 /**
  * The changed paths, capped. The full list is one `git diff --stat` away and the agent is told the range, so

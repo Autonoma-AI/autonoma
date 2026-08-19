@@ -1,9 +1,11 @@
+import { AnalysisStore, PRIOR_REPORTS_LIMIT } from "@autonoma/analysis";
 import { db } from "@autonoma/db";
-import type { DiffsAgentInput } from "@autonoma/diffs";
+import type { BranchHistory, DiffsAgentInput } from "@autonoma/diffs";
 import { FlowIndex, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
 import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import type { Suite } from "@autonoma/test-suite";
+import { analysisIssueKindSchema } from "@autonoma/types";
 import { loadScenarioIndex } from "../load-scenario-index";
 
 /** The metadata pieces of {@link DiffsAgentInput} that load-context produces - everything except the codebase clone. */
@@ -62,21 +64,34 @@ export async function loadBranchData(branchId: string, githubApp: GitHubApp): Pr
     };
 }
 
-export async function loadDiffsContext(
-    applicationId: string,
-    suiteInfo: Suite,
-    headSha: string,
-    baseSha: string,
-): Promise<{ metadata: DiffsAgentMetadata }> {
+export interface LoadDiffsContextParams {
+    applicationId: string;
+    suiteInfo: Suite;
+    headSha: string;
+    baseSha: string;
+    branchId: string;
+    /** The run's own snapshot: excluded from the prior-report history so a run never reads its own report. */
+    snapshotId: string;
+}
+
+export async function loadDiffsContext({
+    applicationId,
+    suiteInfo,
+    headSha,
+    baseSha,
+    branchId,
+    snapshotId,
+}: LoadDiffsContextParams): Promise<{ metadata: DiffsAgentMetadata }> {
     const { existingTests } = mapTestSuiteToContext(suiteInfo);
 
-    const [flows, application, scenarios] = await Promise.all([
+    const [flows, application, scenarios, branchHistory] = await Promise.all([
         loadFlows(db, applicationId, suiteInfo),
         db.application.findUniqueOrThrow({
             where: { id: applicationId },
             select: { testScopeGuidelines: true },
         }),
         loadScenarioIndex(db, applicationId),
+        loadBranchHistory(branchId, snapshotId),
     ]);
     const flowIndex = new FlowIndex(flows);
 
@@ -86,6 +101,9 @@ export async function loadDiffsContext(
             flows: flows.length,
             scenarios: scenarios.listScenarios().length,
             hasTestScopeGuidelines: application.testScopeGuidelines != null,
+            removedTests: branchHistory.removedTests.length,
+            priorReports: branchHistory.priorReports.length,
+            openIssues: branchHistory.openIssues.length,
         },
     });
 
@@ -97,6 +115,32 @@ export async function loadDiffsContext(
             flowIndex,
             scenarios,
             testScopeGuidelines: application.testScopeGuidelines ?? undefined,
+            branchHistory,
         },
+    };
+}
+
+/**
+ * The bounded slice of the branch's analysis history fed to the selector: the tests prior runs removed as
+ * `invalid_test`, the branch's recent Reporter reports (excluding this run's own, capped by the Reporter's own
+ * bound), and its open bug-kind issues. All three reads are branch-scoped and independent, so they run together.
+ */
+async function loadBranchHistory(branchId: string, snapshotId: string): Promise<BranchHistory> {
+    const ledger = new AnalysisStore(db).forBranch(branchId);
+    const [removedTests, priorReports, openIssues] = await Promise.all([
+        ledger.removedInvalidTests(),
+        ledger.priorReports({ excludeSnapshotId: snapshotId, limit: PRIOR_REPORTS_LIMIT }),
+        ledger.openIssues({ kind: analysisIssueKindSchema.enum.bug }),
+    ]);
+
+    return {
+        removedTests: removedTests.map((t) => ({ slug: t.slug, name: t.name, reason: t.reason })),
+        priorReports: priorReports.map((r) => ({ snapshotId: r.snapshotId, report: r.reportMarkdown })),
+        openIssues: openIssues.map((issue) => ({
+            title: issue.title,
+            expectedBehavior: issue.expectedBehavior,
+            actualBehavior: issue.actualBehavior,
+            coveredSlugs: [...new Set(issue.coveredFindings.map((finding) => finding.slug))],
+        })),
     };
 }

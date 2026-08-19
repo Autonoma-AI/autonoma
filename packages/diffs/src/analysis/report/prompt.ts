@@ -1,5 +1,6 @@
 import type { ModelMessage } from "@autonoma/ai";
 import { analysisFindingBucket, analysisVerdictPlane } from "@autonoma/types";
+import { MAX_PRIOR_REPORT_CHARS, truncate } from "../../prompt-truncate";
 import type {
     ReporterBranchTest,
     ReporterExistingIssue,
@@ -11,8 +12,6 @@ import type {
 
 /** How much of a test plan to show per finding before truncating - enough to reason, not a wall of text. */
 const MAX_PLAN_CHARS = 600;
-/** How much of a prior report to carry as context before truncating. */
-const MAX_PRIOR_REPORT_CHARS = 2_000;
 
 /**
  * The Reporter's system prompt. Fixed at construction (never carries per-run data - that lives in the user prompt)
@@ -256,8 +255,4 @@ function renderPriorReports(priorReports: readonly ReporterPriorReport[]): strin
 
 function renderInstruction(): string {
     return "# Do\nReconcile every finding and existing issue with the tools, then call finish with the title, headline, flows and report. Cluster every one of the branch's tests into exactly one flow. Ground every screenshot and code reference in what you actually fetched or read.";
-}
-
-function truncate(text: string, max: number): string {
-    return text.length <= max ? text : `${text.slice(0, max)}...[truncated]`;
 }

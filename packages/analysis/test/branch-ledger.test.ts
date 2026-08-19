@@ -120,5 +120,21 @@ analysisSuite({
                 .priorReports({ excludeSnapshotId: run.snapshotId, limit: 3 });
             expect(prior).toEqual([{ snapshotId: priorId, reportMarkdown: "## Prior" }]);
         });
+
+        test("removedInvalidTests returns only tests whose current verdict is invalid_test, by slug and name", async ({
+            harness,
+        }) => {
+            const run = await harness.seedAnalysis();
+            await harness.recordVerdict(run, "gone-feature", "invalid_test");
+            await harness.recordVerdict(run, "checkout", "client_bug");
+            await harness.recordVerdict(run, "search", "passed");
+
+            const removed = await harness.store.forBranch(run.branchId).removedInvalidTests();
+
+            expect(removed.map((t) => t.slug)).toEqual(["gone-feature"]);
+            expect(removed[0]?.name).toBe("gone-feature");
+            // No note was recorded, so the reason falls back to the classification headline.
+            expect(removed[0]?.reason).toBe("gone-feature invalid_test");
+        });
     },
 });

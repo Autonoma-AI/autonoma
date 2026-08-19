@@ -56,6 +56,19 @@ const preClassifiedConflictInfoSchema = z.object({
     involvedPrNumbers: z.array(z.number()),
 });
 
+const branchHistorySchema = z.object({
+    removedTests: z.array(z.object({ slug: z.string(), name: z.string(), reason: z.string().optional() })),
+    priorReports: z.array(z.object({ snapshotId: z.string(), report: z.string() })),
+    openIssues: z.array(
+        z.object({
+            title: z.string(),
+            expectedBehavior: z.string().optional(),
+            actualBehavior: z.string(),
+            coveredSlugs: z.array(z.string()),
+        }),
+    ),
+});
+
 /**
  * The frozen, on-disk shape of a captured Analysis case (`input.json`).
  *
@@ -77,6 +90,7 @@ export const analysisCaseInputSchema = z.object({
     preClassifiedConflicts: z.array(preClassifiedConflictInfoSchema).optional(),
     testScopeGuidelines: z.string().optional(),
     scenarioRecipes: z.array(scenarioRecipeDataSchema).optional(),
+    branchHistory: branchHistorySchema.optional(),
 });
 
 export type AnalysisCaseInput = z.infer<typeof analysisCaseInputSchema>;
@@ -106,6 +120,7 @@ export function rehydrateAnalysisInput(parsed: AnalysisCaseInput): RehydratedAna
         preClassifiedConflicts: parsed.preClassifiedConflicts ?? [],
         scenarioRecipes: parsed.scenarioRecipes ?? [],
         testScopeGuidelines: parsed.testScopeGuidelines,
+        branchHistory: parsed.branchHistory,
     };
 
     return { coords: parsed.codebase, agentInput };
@@ -132,5 +147,6 @@ export function serializeAnalysisInput(
         preClassifiedConflicts: agentInput.preClassifiedConflicts ?? [],
         testScopeGuidelines: agentInput.testScopeGuidelines,
         scenarioRecipes: agentInput.scenarioRecipes ?? [],
+        branchHistory: agentInput.branchHistory,
     });
 }

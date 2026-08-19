@@ -204,12 +204,14 @@ async function runSelection({
     merge: MergeFlowResult;
 }): Promise<AgentSelection> {
     const suite = await snapshot.read();
-    const { metadata } = await loadDiffsContext(
-        branchData.applicationId,
-        suite,
-        coordinates.headSha,
-        coordinates.baseSha,
-    );
+    const { metadata } = await loadDiffsContext({
+        applicationId: branchData.applicationId,
+        suiteInfo: suite,
+        headSha: coordinates.headSha,
+        baseSha: coordinates.baseSha,
+        branchId: snapshot.branchId,
+        snapshotId: snapshot.snapshotId,
+    });
     const scenarioRecipes = await resolveScenarioRecipesForSnapshot(db, snapshot.snapshotId, collectScenarioIds(suite));
 
     // An imported test is already in the run set with its plan settled, so it is withheld from the agent's list -

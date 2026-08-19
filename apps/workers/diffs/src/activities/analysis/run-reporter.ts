@@ -1,4 +1,4 @@
-import type { Finding, Issue, IssueReconciliation } from "@autonoma/analysis";
+import { type Finding, type Issue, type IssueReconciliation, PRIOR_REPORTS_LIMIT } from "@autonoma/analysis";
 import { persistAiCosts } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { StorageEvidenceLoader, resolveScenarioRecipesForSnapshot, summarizeScenarioRecipes } from "@autonoma/diffs";
@@ -24,8 +24,6 @@ import { createModelSession, getAnalysisStore, getStorage } from "../../services
 import { uploadConversation } from "../../upload-conversation";
 import { loadBranchTests } from "./branch-tests";
 
-/** How many prior branch reports to carry as cumulative context. */
-const PRIOR_REPORTS_LIMIT = 3;
 /** How much of an existing issue's narrative to show as its cross-time matching summary. */
 const NARRATIVE_SUMMARY_CHARS = 240;
 /** Cap on how many run-trace step frames a finding offers as fetchable evidence (the key frame is always offered). */
@@ -354,6 +352,11 @@ function analysisVerdict(category: string): ReporterFinding["category"] {
     return analysisVerdictSchema.catch("engine_artifact").parse(category);
 }
 
+/**
+ * A terser sibling of `@autonoma/diffs`'s shared `truncate`: a 240-char cross-time issue-matching hint wants a
+ * plain `...` ellipsis, not the `...[truncated]` marker that flags cut prompt-body content. Kept local rather than
+ * widen the diffs package's public surface for a one-liner.
+ */
 function truncate(text: string, max: number): string {
     return text.length <= max ? text : `${text.slice(0, max)}...`;
 }

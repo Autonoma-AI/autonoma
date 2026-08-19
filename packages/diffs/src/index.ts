@@ -1,10 +1,14 @@
 // Data types - shared shapes that flow between the pipeline stages.
 export {
+    type BranchHistory,
     type DiffAnalysis,
     type ExistingTestInfo,
     type MergeContextInfo,
+    type OpenIssueInfo,
     type PreClassifiedConflictInfo,
     type PreClassifiedConflictVersion,
+    type PriorReportInfo,
+    type RemovedTestInfo,
 } from "./diffs-agent";
 
 // Agents - the Agent-abstraction adoption surface.

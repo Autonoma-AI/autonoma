@@ -50,3 +50,47 @@ export interface PreClassifiedConflictInfo {
     versions: PreClassifiedConflictVersion[];
     involvedPrNumbers: number[];
 }
+
+/**
+ * A test a prior analysis run removed from the branch as `invalid_test` (its target feature/flow does not exist).
+ * The test is gone from the current suite, so it is absent from {@link ExistingTestInfo} and the selector would
+ * author it again; it is shown as prior work already thrown away so it is not re-created.
+ */
+export interface RemovedTestInfo {
+    slug: string;
+    name: string;
+    /** Why a prior run judged it unexecutable. Absent when the removal recorded no note. */
+    reason?: string;
+}
+
+/** One of the branch's recent Reporter report proses, given as prior context. Newest first. */
+export interface PriorReportInfo {
+    snapshotId: string;
+    /** The report Markdown, truncated to the Reporter's own per-report bound. */
+    report: string;
+}
+
+/**
+ * An open bug-kind issue on the branch: a known problem area. Given to the selector only as context for where the
+ * branch is already misbehaving, never as a verdict to reproduce - the covering tests of open issues are
+ * re-verified deterministically elsewhere and the selector has no say in whether they run.
+ */
+export interface OpenIssueInfo {
+    title: string;
+    expectedBehavior?: string;
+    actualBehavior: string;
+    /** The slugs of the tests that currently cover this issue. */
+    coveredSlugs: string[];
+}
+
+/**
+ * A bounded, structured slice of the branch's analysis history, so the selector does not re-derive its choices as
+ * if the branch had no past. Present only on the analysis selection path; absent on a brand-new branch with no
+ * history at all, where selection is identical to a stateless run. Each member list is independently empty rather
+ * than the whole slice being partial.
+ */
+export interface BranchHistory {
+    removedTests: RemovedTestInfo[];
+    priorReports: PriorReportInfo[];
+    openIssues: OpenIssueInfo[];
+}

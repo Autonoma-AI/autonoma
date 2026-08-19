@@ -23,7 +23,14 @@ export { type FindingDetailClassification, type FindingDetailRecord } from "./qu
 export { type SettledReport } from "./queries/read-report";
 export { type SelectionTarget } from "./queries/read-selection";
 export { type PriorRun, type PriorRunsHistory, type PriorRunsQuery } from "./queries/prior-runs";
-export { BranchLedger, type CoveredIssue, type IssueFilter, type PriorReport } from "./branch-ledger";
+export {
+    BranchLedger,
+    PRIOR_REPORTS_LIMIT,
+    type CoveredIssue,
+    type IssueFilter,
+    type PriorReport,
+    type RemovedInvalidTest,
+} from "./branch-ledger";
 export { type CoveredFinding, type Issue } from "./queries/read-issues";
 
 export { derivePrVerdict } from "./verdict";

@@ -53,7 +53,14 @@ export async function assembleDiffsAgentInput({
     logger.info("Loaded branch data", { extra: { fullName: branchData.fullName } });
 
     const suiteInfo = await loadBaselineSuiteInfo(snapshotId, prevSnapshotId);
-    const { metadata } = await loadDiffsContext(branchData.applicationId, suiteInfo, headSha, baseSha);
+    const { metadata } = await loadDiffsContext({
+        applicationId: branchData.applicationId,
+        suiteInfo,
+        headSha,
+        baseSha,
+        branchId,
+        snapshotId,
+    });
     logger.info("Loaded diffs context", { extra: { existingTests: metadata.existingTests.length } });
 
     // Recipe templates for the scenarios the in-scope tests reference, sourced

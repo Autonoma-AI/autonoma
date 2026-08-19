@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import {
+    ANALYSIS_VERDICT,
     type AnalysisIssueKind,
     type AnalysisIssueStatus,
     type AnalysisVerdictCounts,
@@ -14,6 +15,19 @@ import { type Issue, issueStatusFilter, readIssues } from "./queries/read-issues
 import { type AnalysisLifecycle, lifecycleSelect, toLifecycle } from "./queries/read-lifecycle";
 import { type SettledReport, readLatestSettledReport } from "./queries/read-report";
 import { derivePrVerdict } from "./verdict";
+
+/**
+ * How many prior branch reports the Reporter carries as cumulative context. Exported so every consumer of the
+ * branch's report history (the Reporter itself, and the Impact Analysis selector) reuses the one bound instead of
+ * inventing its own.
+ */
+export const PRIOR_REPORTS_LIMIT = 3;
+
+/**
+ * Cap on how many `invalid_test`-removed tests the selector is shown. A branch rarely removes many, but the slice
+ * is bounded by construction so a pathological branch cannot flood the prompt.
+ */
+const REMOVED_INVALID_TESTS_LIMIT = 25;
 
 export interface IssueFilter {
     status?: AnalysisIssueStatus;
@@ -29,6 +43,20 @@ export interface CoveredIssue {
 export interface PriorReport {
     snapshotId: string;
     reportMarkdown: string;
+}
+
+/**
+ * A test a prior analysis run removed from the branch because the Investigator judged it `invalid_test` - its
+ * target feature/flow does not exist, so it can never pass. The `TestCase` survives the removal (only the
+ * snapshot's assignment is dropped), so its slug and name are read straight off it; the reason is the
+ * Investigator's impossibility justification.
+ */
+export interface RemovedInvalidTest {
+    testCaseId: string;
+    slug: string;
+    name: string;
+    /** The Investigator's account of why the test is unexecutable; absent when neither note nor headline was set. */
+    reason?: string;
 }
 
 /**
@@ -203,5 +231,50 @@ export class BranchLedger {
             select: { snapshotId: true, reportMarkdown: true },
         });
         return rows.map((row) => ({ snapshotId: row.snapshotId, reportMarkdown: row.reportMarkdown }));
+    }
+
+    /**
+     * The tests any snapshot of this branch removed as `invalid_test`, newest first and capped. A removed test is
+     * gone from the current suite, so the selector cannot see it in `existingTests` and would author it again; this
+     * is what lets the prompt show it as prior work already thrown away.
+     *
+     * Read off the finding's CURRENT classification (self-heal appends rows, so an older classification can hold a
+     * stale category) and deduped by test case - a test is removed at most once, so the newest finding per test is
+     * its removal.
+     */
+    public async removedInvalidTests(): Promise<RemovedInvalidTest[]> {
+        const rows = await this.db.analysisFinding.findMany({
+            where: {
+                job: { snapshot: { branchId: this.branchId } },
+                currentClassification: { category: ANALYSIS_VERDICT.invalid_test },
+            },
+            orderBy: { createdAt: "desc" },
+            // Bound the read, not just the returned slice: findings are unique per (snapshot, test) and a removed
+            // test does not recur, so 3x the cap leaves ample headroom for the newest-per-test dedup below to still
+            // reach LIMIT distinct tests.
+            take: REMOVED_INVALID_TESTS_LIMIT * 3,
+            select: {
+                testCaseId: true,
+                testCase: { select: { slug: true, name: true } },
+                currentClassification: { select: { invalidTestNote: true, headline: true } },
+            },
+        });
+        const byTestCase = new Map<string, RemovedInvalidTest>();
+        for (const row of rows) {
+            if (byTestCase.has(row.testCaseId)) continue;
+            byTestCase.set(row.testCaseId, {
+                testCaseId: row.testCaseId,
+                slug: row.testCase.slug,
+                name: row.testCase.name,
+                reason: row.currentClassification?.invalidTestNote ?? row.currentClassification?.headline ?? undefined,
+            });
+            if (byTestCase.size >= REMOVED_INVALID_TESTS_LIMIT) break;
+        }
+        const removed = [...byTestCase.values()];
+        this.logger.info("Loaded removed invalid tests for branch", {
+            branch: { branchId: this.branchId },
+            extra: { count: removed.length },
+        });
+        return removed;
     }
 }

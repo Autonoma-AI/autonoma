@@ -36,7 +36,8 @@ const ledger = store.forBranch(branchId);
 await ledger.openIssues({ kind: "bug" });
 await ledger.openBugCount();
 await ledger.coveredTestsForOpenBugs();
-await ledger.priorReports({ excludeSnapshotId, limit });
+await ledger.priorReports({ excludeSnapshotId, limit: PRIOR_REPORTS_LIMIT }); // limit is the exported shared bound
+await ledger.removedInvalidTests(); // tests prior runs removed as invalid_test - the Impact Analysis selector's history
 
 // A test's verdict history across the application's analyses (the classifier's baseline evidence):
 await store.priorRuns({ applicationId, testSlug, currentSnapshotId });
