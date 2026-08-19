@@ -1,11 +1,17 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { BudgetPlan, FlowBudget } from "../../src/agents/05-test-generator/budget";
+import type { JudgeTest } from "../../src/agents/05-test-generator/duplicate-judge";
 
 // The registry's job is bookkeeping and serialisation; whether two sentences mean
 // the same thing is the judge's, and it is a model call. Stub it so these tests
 // are about claiming, rejecting and racing rather than about semantics.
 const judgeDuplicates = vi.hoisted(() => vi.fn());
 vi.mock("../../src/agents/05-test-generator/duplicate-judge", () => ({ judgeDuplicates }));
+
+// Spy on the structured log so the verdict-logging test can assert a rejection
+// leaves an aggregatable trace rather than deleting coverage silently.
+const captureLog = vi.hoisted(() => vi.fn());
+vi.mock("../../src/core/logs", () => ({ captureLog }));
 
 const { TestRegistry } = await import("../../src/agents/05-test-generator/test-registry");
 
@@ -46,6 +52,25 @@ function acceptAll() {
 /** Judge that marks `dupe` as duplicating `of`. */
 function reject(dupe: string, of: string) {
     judgeDuplicates.mockImplementation(async () => new Map([[dupe, { duplicateOf: of }]]));
+}
+
+/**
+ * A page-aware judge: a proposal duplicates an existing test only when they share
+ * a page. This is exactly the behaviour the fix gives a real judge - the page is
+ * part of a test's identity - so it proves the registry threads each side's page
+ * through, not that the mock is clever.
+ */
+function judgeByPage() {
+    judgeDuplicates.mockImplementation(
+        async ({ existing, proposed }: { existing: JudgeTest[]; proposed: JudgeTest[] }) => {
+            const result = new Map<string, { duplicateOf: string }>();
+            for (const p of proposed) {
+                const match = existing.find((e) => e.page === p.page);
+                if (match != null) result.set(p.description, { duplicateOf: match.description });
+            }
+            return result;
+        },
+    );
 }
 
 describe("TestRegistry", () => {
@@ -109,7 +134,7 @@ describe("TestRegistry", () => {
 
     it("sees earlier claims from a concurrent proposal, not a stale snapshot", async () => {
         const seen: number[] = [];
-        judgeDuplicates.mockImplementation(async ({ existing }: { existing: string[] }) => {
+        judgeDuplicates.mockImplementation(async ({ existing }: { existing: JudgeTest[] }) => {
             seen.push(existing.length);
             await new Promise((res) => setTimeout(res, 5));
             return new Map();
@@ -132,6 +157,60 @@ describe("TestRegistry", () => {
         const verdicts = await registry.propose("b", ["another behaviour"]);
 
         expect(verdicts[0]?.accepted).toBe(true);
+    });
+});
+
+describe("TestRegistry page context", () => {
+    it("does not merge two generically-phrased tests that live on different pages", async () => {
+        judgeByPage();
+        const pageLabelForNode = (nodeId: string) => (nodeId === "auth-node" ? "/auth" : "/workspace");
+        const registry = new TestRegistry("model", undefined, undefined, pageLabelForNode);
+
+        // The same sentence, verbatim, on two different pages - the exact shape that
+        // wrongly collapsed data-verifying assertions before the page context existed.
+        const sentence = "shows a validation error when required fields are empty";
+        await registry.propose("auth-node", [sentence]);
+        const [crossPage] = await registry.propose("workspace-node", [sentence]);
+
+        expect(crossPage?.accepted).toBe(true);
+        expect(registry.claimed).toHaveLength(2);
+    });
+
+    it("still merges two genuine duplicates on the same page", async () => {
+        judgeByPage();
+        const pageLabelForNode = () => "/workspace";
+        const registry = new TestRegistry("model", undefined, undefined, pageLabelForNode);
+
+        await registry.propose("workspace-node", ["creating a workspace with a valid name succeeds"]);
+        const [samePage] = await registry.propose("workspace-node-2", [
+            "making a new workspace with a good name works",
+        ]);
+
+        expect(samePage?.accepted).toBe(false);
+        expect(samePage?.duplicateOf).toBe("creating a workspace with a valid name succeeds");
+        expect(registry.claimed).toHaveLength(1);
+    });
+
+    it("logs a rejection verdict with both pages, so silent coverage deletion is visible", async () => {
+        judgeByPage();
+        captureLog.mockClear();
+        const pageLabelForNode = () => "/workspace";
+        const registry = new TestRegistry("model", undefined, undefined, pageLabelForNode);
+
+        await registry.propose("workspace-node", ["creating a workspace with a valid name succeeds"]);
+        await registry.propose("workspace-node-2", ["making a new workspace with a good name works"]);
+
+        const rejection = captureLog.mock.calls.find(
+            ([, message]) => message === "Test proposal rejected as already covered",
+        );
+        expect(rejection).toBeDefined();
+        expect(rejection?.[2]).toMatchObject({
+            proposed: "making a new workspace with a good name works",
+            proposed_page: "/workspace",
+            duplicate_of: "creating a workspace with a valid name succeeds",
+            duplicate_of_page: "/workspace",
+            accepted: false,
+        });
     });
 });
 

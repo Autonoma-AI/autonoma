@@ -19,11 +19,19 @@ import { AI_MAX_RETRIES } from "../../core/model";
 
 const SYSTEM_PROMPT = `You decide whether a proposed E2E test covers behaviour that an existing test already covers.
 
+Each test is labelled with the page it runs on, in [brackets]. The page is part of a test's
+identity: two tests whose sentences read almost identically but which run on DIFFERENT pages are
+DISTINCT - "shows a validation error when required fields are empty" on a sign-up page and the same
+sentence on a workspace-creation page fail for entirely different reasons even though the words match.
+Generic assertions about data, lists and forms collide this way constantly; the page is what tells
+them apart. Two similar tests on the SAME page can still be duplicates.
+
 Two tests are DUPLICATES when they would fail for the same reason - they exercise the same user
 action against the same feature and assert the same outcome. Different wording does not make
 them different tests.
 
 Two tests are DISTINCT when either could fail while the other passes. In particular:
+- Tests on different pages are almost always DISTINCT (see above).
 - Different variants that take different code paths (an internal vs an external transfer, a
   physical vs a virtual card) are DISTINCT even when the sentences look nearly identical.
 - A happy path and its validation/error case are DISTINCT.
@@ -48,11 +56,23 @@ const verdictSchema = z.object({
     ),
 });
 
+/**
+ * A test to judge, paired with the page it exercises. The page scopes the
+ * comparison: it is the difference between merging two genuine duplicates and
+ * wrongly merging two generically-phrased tests that happen to share words but
+ * live on different pages.
+ */
+export interface JudgeTest {
+    /** A human-readable page label (route path or name) the description is scoped to. */
+    page: string;
+    description: string;
+}
+
 export interface DuplicateJudgeInput {
     model: LanguageModel;
-    /** Descriptions already claimed by the run. */
-    existing: readonly string[];
-    proposed: readonly string[];
+    /** Tests already claimed by the run, each with its page. */
+    existing: readonly JudgeTest[];
+    proposed: readonly JudgeTest[];
 }
 
 export interface DuplicateVerdict {
@@ -73,14 +93,17 @@ export async function judgeDuplicates({
     // Nothing to compare against: the first node's proposals are all new.
     if (existing.length === 0) return verdicts;
 
-    const prompt = `## Tests the suite already covers
-${existing.map((d, i) => `${i + 1}. ${d}`).join("\n")}
+    const prompt = `Each test is prefixed with the page it exercises, in [brackets].
+
+## Tests the suite already covers
+${existing.map((t, i) => `${i + 1}. [${t.page}] ${t.description}`).join("\n")}
 
 ## Proposed new tests
-${proposed.map((d, i) => `${i + 1}. ${d}`).join("\n")}
+${proposed.map((t, i) => `${i + 1}. [${t.page}] ${t.description}`).join("\n")}
 
-For each proposed test, say whether it duplicates one of the existing ones. Return a verdict for
-every proposal, copying its description verbatim.`;
+For each proposed test, say whether it duplicates one of the existing ones - remembering that tests
+on different pages are almost always distinct. Return a verdict for every proposal, copying its
+description verbatim WITHOUT the page prefix.`;
 
     try {
         const { output } = await generateText({

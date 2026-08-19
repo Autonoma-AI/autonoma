@@ -466,7 +466,17 @@ Do NOT try to finish early. Process EVERY node via next_node until it returns do
     const runFlowIds = budget != null ? planFlowIds(budget) : undefined;
     // The smoke floor is one test per PAGE, so the registry has to collapse a page
     // and its sub-features onto one key - the same page root the worker partition uses.
-    const registry = new TestRegistry(model, budget, (nodeId) => pageRootOf(state, nodeId));
+    //
+    // The duplicate judge additionally needs a human-readable page label (route path
+    // or name), not the raw model node id, so two generically-phrased tests on
+    // different pages are not merged. Resolve it via the page root and tolerate a
+    // node that will not resolve - the registry falls back to the node id.
+    const pageLabelForNode = (nodeId: string): string | undefined => {
+        const root = pageRootOf(state, nodeId);
+        const node = state.nodes.get(root) ?? state.nodes.get(nodeId);
+        return node?.routePath ?? node?.name;
+    };
+    const registry = new TestRegistry(model, budget, (nodeId) => pageRootOf(state, nodeId), pageLabelForNode);
 
     /** Which flow's allowance a node draws from, via the route it sits on. */
     const flowForNode = (nodeId: string): string | undefined => {

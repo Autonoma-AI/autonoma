@@ -70,8 +70,26 @@ export class TestRegistry {
          * node id, which the no-ranking runs and the unit tests rely on.
          */
         private readonly pageForNode?: (nodeId: string) => string | undefined,
+        /**
+         * A human-readable page label (route path or name) for a node, handed to the
+         * duplicate judge so it compares tests within their page context. Without it,
+         * two generically-phrased tests on different pages - a validation error on
+         * /auth and one on /workspace - read as the same sentence and get merged.
+         * Absent (or returning undefined) falls back to the node id, mirroring
+         * `pageForNode`, so no-ranking runs and the unit tests are unaffected.
+         */
+        private readonly pageLabelForNode?: (nodeId: string) => string | undefined,
     ) {
         this.validFlowIds = budget != null ? planFlowIds(budget) : new Set();
+    }
+
+    /**
+     * The page a node's tests belong to, as the judge should see it. Falls back to
+     * the node id when no label is available, so the judge always has *some* scope
+     * rather than a bare sentence.
+     */
+    private pageLabel(nodeId: string): string {
+        return this.pageLabelForNode?.(nodeId) ?? nodeId;
     }
 
     /**
@@ -219,10 +237,13 @@ export class TestRegistry {
             return descriptions.map((description) => ({ description, accepted: false, reason: flowReason }));
         }
 
+        // Both sides carry their page so the judge compares within page context;
+        // every test a single node proposes shares that node's page.
+        const proposedPage = this.pageLabel(nodeId);
         const verdicts = await judgeDuplicates({
             model: this.model,
-            existing: this.claims.map((c) => c.description),
-            proposed: descriptions,
+            existing: this.claims.map((c) => ({ page: this.pageLabel(c.nodeId), description: c.description })),
+            proposed: descriptions.map((description) => ({ page: proposedPage, description })),
         });
 
         const results: ProposalVerdict[] = [];
@@ -236,6 +257,13 @@ export class TestRegistry {
                 const affordable = this.affordable(flowId, nodeId);
                 if (!affordable.ok) {
                     track("cli_test_claim_over_budget", { node_id: nodeId });
+                    captureLog("info", `Test proposal rejected as over budget`, {
+                        source: "test-registry",
+                        node_id: nodeId,
+                        proposed: description,
+                        proposed_page: proposedPage,
+                        accepted: false,
+                    });
                     results.push({ description, accepted: false, reason: affordable.reason });
                     continue;
                 }
@@ -243,19 +271,28 @@ export class TestRegistry {
                 // The smoke floor is reserved outside the discretionary pool, so a
                 // floor test must not draw it down - only the second test onward does.
                 if (!affordable.floor) this.charge(flowId);
+                // Acceptance is the high-volume happy path, so it earns an analytics
+                // event (from which an acceptance rate is computable) rather than a
+                // per-item log line - only the lossy rejection/over-budget cases do.
+                track("cli_test_claim_accepted", { node_id: nodeId });
                 results.push({ description, accepted: true });
                 continue;
             }
 
-            // Every rejection is recorded. A duplicate judge that is too eager
-            // trades visible duplication for invisible gaps, and the only way to
-            // notice is for each kill to leave a trace.
+            // Every rejection is recorded, with both pages, so a duplicate judge
+            // that is too eager - trading visible duplication for invisible gaps -
+            // can be spotted by aggregating these lines rather than only in a run
+            // nobody re-reads. The matched claim gives the existing side its page.
+            const matched = this.claims.find((c) => c.description === duplicateOf);
             track("cli_test_claim_rejected", { node_id: nodeId });
             captureLog("info", `Test proposal rejected as already covered`, {
                 source: "test-registry",
                 node_id: nodeId,
                 proposed: description,
+                proposed_page: proposedPage,
                 duplicate_of: duplicateOf,
+                duplicate_of_page: matched != null ? this.pageLabel(matched.nodeId) : undefined,
+                accepted: false,
             });
             results.push({
                 description,
