@@ -1483,6 +1483,12 @@ model BillingCustomer {
   subscriptionCreditBalance Int     @default(0) @map("subscription_credit_balance")
   autoTopUpEnabled          Boolean @default(false) @map("auto_top_up_enabled")
   autoTopUpThreshold        Int     @default(0) @map("auto_top_up_threshold")
+  // How far below zero this org's balance may go before new previewkit deploys/PR analysis runs
+  // are blocked - an in-flight PR's jobs (AI calls, builds, running compute) always deduct and
+  // never get half-billed, floor-clamped here instead of at a hard zero. Defaults to 0 (today's
+  // behavior, unchanged) for every org; raised only via a deliberate admin action
+  // (admin.billing.updateCreditFloor), same as BillingPricing's compute rates.
+  creditFloor               Int     @default(0) @map("credit_floor")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1634,6 +1640,8 @@ model CreditTransaction {
   stripeRefundId        String? @unique @map("stripe_refund_id")
   promoRedemptionId     String? @unique @map("promo_redemption_id")
   usageWindowId         String? @unique @map("usage_window_id")
+  aiCostRecordId        String? @unique @map("ai_cost_record_id")
+  previewkitAppBuildId  String? @unique @map("previewkit_app_build_id")
 
   createdAt DateTime @default(now()) @map("created_at")
 

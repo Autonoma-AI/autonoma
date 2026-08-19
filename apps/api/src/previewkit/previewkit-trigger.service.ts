@@ -21,12 +21,9 @@ import { applicationBranchRefs } from "../github/application-branch-refs";
 import { isBaseTrunkGateEnforced } from "../github/base-trunk-gate";
 import { githubErrorStatus, normalizeBranchName, sameGitRef } from "../github/git-ref";
 import type { GitHubInstallationService } from "../github/github-installation.service";
+import { postInsufficientCreditsComment } from "../github/insufficient-credits-comment";
 import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
 import { Service } from "../routes/service";
-
-/** Posted to the PR when a deploy/redeploy is declined for a zero credit balance. */
-const INSUFFICIENT_CREDITS_COMMENT =
-    "This organization is out of credits, so this preview environment could not be deployed. Add credits to resume previews.";
 
 export const MAIN_BRANCH_ENVIRONMENT_NUMBER = 0;
 
@@ -99,7 +96,7 @@ interface MainBranchPushTarget {
 /** The GitHub reads the main-branch preflight and redeploy head-resolution need, plus posting the credits-blocked comment. */
 export type PreviewkitGitHubReader = Pick<
     GitHubInstallationService,
-    "getRepository" | "getBranchHead" | "getPullRequest" | "postComment"
+    "getRepository" | "getBranchHead" | "getPullRequest" | "postComment" | "updateComment" | "deleteComment"
 >;
 
 /** The pull_request webhook fields the preview lifecycle needs. */
@@ -162,7 +159,12 @@ export class PreviewkitTriggerService extends Service {
             action,
         });
 
-        await this.assertDeployCreditsAvailable(request.organizationId, request.repoFullName, request.prNumber);
+        await this.assertDeployCreditsAvailable(
+            request.organizationId,
+            request.repoFullName,
+            request.prNumber,
+            request.headSha,
+        );
 
         if (request.branchId == null) {
             await this.startBuildWithoutRun(request);
@@ -209,7 +211,12 @@ export class PreviewkitTriggerService extends Service {
             pr: request.prNumber,
         });
 
-        await this.assertDeployCreditsAvailable(request.organizationId, request.repoFullName, request.prNumber);
+        await this.assertDeployCreditsAvailable(
+            request.organizationId,
+            request.repoFullName,
+            request.prNumber,
+            request.headSha,
+        );
 
         await this.startPreviewBuild({
             target: {
@@ -380,13 +387,16 @@ export class PreviewkitTriggerService extends Service {
     }
 
     /**
-     * Declines a new run (never teardown) on a zero balance. Dual-switched - global and per-org, either off is a
-     * no-op - so enforcement rolls out per org. Comments on the PR before throwing, so every caller explains itself.
+     * Declines a new run (never teardown) once the org is at/below its credit floor. Dual-switched -
+     * global and per-org, either off is a no-op - so enforcement rolls out per org. Comments on the
+     * PR (the shared, dedup'd "out of credits" notice - also used by the PR-analysis gate) before
+     * throwing, so every caller explains itself.
      */
     private async assertDeployCreditsAvailable(
         organizationId: string,
         repoFullName: string,
         prNumber: number,
+        headSha: string,
     ): Promise<void> {
         if (!env.PREVIEWKIT_BILLING_ENABLED) return;
 
@@ -405,16 +415,21 @@ export class PreviewkitTriggerService extends Service {
             pr: prNumber,
         });
 
-        await this.githubInstallationService
-            .postComment(organizationId, repoFullName, prNumber, INSUFFICIENT_CREDITS_COMMENT)
-            .catch((error: unknown) => {
-                this.logger.warn("Failed to post insufficient-credits PR comment", {
-                    organizationId,
-                    repo: repoFullName,
-                    pr: prNumber,
-                    error: String(error),
-                });
+        await postInsufficientCreditsComment(
+            this.githubInstallationService,
+            this.db,
+            organizationId,
+            repoFullName,
+            prNumber,
+            headSha,
+        ).catch((error: unknown) => {
+            this.logger.warn("Failed to post insufficient-credits PR comment", {
+                organizationId,
+                repo: repoFullName,
+                pr: prNumber,
+                error: String(error),
             });
+        });
 
         throw new InsufficientPreviewCreditsError();
     }
@@ -981,7 +996,12 @@ export class PreviewkitTriggerService extends Service {
             mode,
         });
 
-        await this.assertDeployCreditsAvailable(environment.organizationId, repoFullName, prNumber);
+        await this.assertDeployCreditsAvailable(
+            environment.organizationId,
+            repoFullName,
+            prNumber,
+            environment.headSha,
+        );
 
         await this.triggerRedeployApp({
             target: {

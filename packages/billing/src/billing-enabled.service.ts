@@ -84,6 +84,14 @@ export class EnabledBillingService implements BillingService, StripeBillingServi
         return this.creditsService.checkPreviewDeployCreditsGate(organizationId);
     }
 
+    checkAnalysisCreditsGate(organizationId: string) {
+        return this.creditsService.checkAnalysisCreditsGate(organizationId);
+    }
+
+    updateCreditFloor(organizationId: string, creditFloor: number) {
+        return this.creditsService.updateCreditFloor(organizationId, creditFloor);
+    }
+
     refundCreditsForGeneration(generationId: string) {
         return this.creditsService.refundCreditsForGeneration(generationId);
     }

@@ -419,6 +419,20 @@ export class GitHubInstallationService extends Service {
         return client.postComment(repoFullName, prNumber, body);
     }
 
+    async updateComment(orgId: string, repoFullName: string, commentId: string, body: string): Promise<void> {
+        this.logger.info("Updating PR comment", { orgId, repoFullName, commentId });
+
+        const client = await this.getOrgInstallationClient(orgId);
+        await client.updateComment(repoFullName, commentId, body);
+    }
+
+    async deleteComment(orgId: string, repoFullName: string, commentId: string): Promise<void> {
+        this.logger.info("Deleting PR comment", { orgId, repoFullName, commentId });
+
+        const client = await this.getOrgInstallationClient(orgId);
+        await client.deleteComment(repoFullName, commentId);
+    }
+
     async getApplicationRepository(organizationId: string, applicationId: string): Promise<Repository | null> {
         this.logger.info("Fetching application repository", { organizationId, applicationId });
 

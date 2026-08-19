@@ -1,3 +1,4 @@
+import { createBillingService } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { triggerAnalysisRun } from "@autonoma/workflow";
 import { env } from "../env";
@@ -7,5 +8,6 @@ import { DiffsTriggerService } from "./diffs-trigger.service";
 
 const githubApp = buildGitHubApp(env);
 const githubService = new GitHubInstallationService(db, githubApp);
+const billingService = createBillingService(db);
 
-export const diffsTriggerService = new DiffsTriggerService(db, githubService, triggerAnalysisRun);
+export const diffsTriggerService = new DiffsTriggerService(db, githubService, billingService, triggerAnalysisRun);

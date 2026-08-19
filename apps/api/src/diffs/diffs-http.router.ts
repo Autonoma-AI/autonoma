@@ -1,6 +1,6 @@
 import { requireApiKey, type UserAuthVariables } from "@autonoma/auth";
 import { db } from "@autonoma/db";
-import { BadRequestError, NotFoundError } from "@autonoma/errors";
+import { BadRequestError, InsufficientAnalysisCreditsError, NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -86,6 +86,13 @@ export const diffsHttpRouter = new Hono<{ Variables: UserAuthVariables }>()
             }
             if (error instanceof NotFoundError) {
                 return ctx.json({ error: error.message }, 404);
+            }
+            // 402, matching the previewkit lifecycle routes' handling of the sibling
+            // InsufficientPreviewCreditsError. Deliberately answered before the `fatal` below: an
+            // out-of-credits org is an expected business outcome for this endpoint, not an incident
+            // to page on.
+            if (error instanceof InsufficientAnalysisCreditsError) {
+                return ctx.json({ error: error.message }, 402);
             }
 
             logger.fatal("Failed to trigger diffs analysis", error, {

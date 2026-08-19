@@ -5,15 +5,26 @@ import { InsufficientCreditsError, SubscriptionGracePeriodExpiredError } from "@
 import * as Sentry from "@sentry/node";
 import type { AutoTopUpService } from "./auto-topup.service";
 import type { BillingPricingService } from "./billing-pricing.service";
-import { computePreviewUsageCost, getGenerationCreditCost, isUniqueConstraintError } from "./billing-utils";
+import {
+    computePreviewUsageCost,
+    getGenerationCreditCost,
+    isUniqueConstraintError,
+    usdToCreditCost,
+} from "./billing-utils";
 import type {
     DeductCreditsResultRow,
     GenerationRefundResultRow,
     SubscriptionGrantCustomerRow,
     TopupRefundResultRow,
 } from "./billing.types";
+import { deductCreditsFloored } from "./credits-deduction";
 import { Service } from "./service";
-import type { DeductGenerationContext, LlmProxyGateResult, PreviewDeployGateResult } from "./types";
+import type {
+    AnalysisCreditsGateResult,
+    DeductGenerationContext,
+    LlmProxyGateResult,
+    PreviewDeployGateResult,
+} from "./types";
 import type { VercelOverageService } from "./vercel-overage.service";
 
 type TxClient = Prisma.TransactionClient;
@@ -317,18 +328,62 @@ export class CreditsService extends Service {
      * never torn down by this gate; it only blocks launching a new Job.
      */
     async checkPreviewDeployCreditsGate(organizationId: string): Promise<PreviewDeployGateResult> {
+        return this.checkFloorGate(organizationId, "Preview deploy");
+    }
+
+    /**
+     * Pre-flight gate for starting a NEW PR analysis run (diffs/investigation and everything it
+     * triggers - AI calls, and any previewkit deploy it launches). Same shape as
+     * `checkPreviewDeployCreditsGate`: blocks a new run once the org is at/below its floor, never
+     * cancels a run already in progress.
+     */
+    async checkAnalysisCreditsGate(organizationId: string): Promise<AnalysisCreditsGateResult> {
+        return this.checkFloorGate(organizationId, "Analysis run");
+    }
+
+    /**
+     * Shared "is this org allowed to start new credit-consuming work" check: blocked once
+     * `creditBalance` is at or below the org's own `creditFloor` (0 by default). An org already
+     * sitting below its floor - because an earlier in-flight PR was allowed to dip below zero -
+     * stays blocked from starting anything NEW until it tops up, but nothing already running is
+     * torn down or interrupted by this check.
+     */
+    private async checkFloorGate(
+        organizationId: string,
+        label: string,
+    ): Promise<{ allowed: true } | { allowed: false; reason: "out_of_credits" }> {
         const customer = await this.db.billingCustomer.findUnique({
             where: { organizationId },
-            select: { creditBalance: true },
+            select: { creditBalance: true, creditFloor: true },
         });
         const balance = customer?.creditBalance ?? 0;
+        const floor = customer?.creditFloor ?? 0;
 
-        if (balance <= 0) {
-            this.logger.info("Preview deploy credits gate blocked - out of credits", { organizationId, balance });
+        if (balance <= floor) {
+            this.logger.info(`${label} credits gate blocked - at or below credit floor`, {
+                organizationId,
+                balance,
+                floor,
+            });
             return { allowed: false, reason: "out_of_credits" };
         }
 
         return { allowed: true };
+    }
+
+    /**
+     * Raises (or lowers) how far below zero an org's balance may go before `checkFloorGate` blocks
+     * new work - a deliberate admin action, same as `updateComputePricing`. There is no automatic
+     * "this org is enterprise" detection, so this is the only way a floor other than the default 0
+     * gets set.
+     */
+    async updateCreditFloor(organizationId: string, creditFloor: number): Promise<void> {
+        this.logger.info("Updating credit floor", { organizationId, creditFloor });
+        await this.db.billingCustomer.upsert({
+            where: { organizationId },
+            create: { organizationId, creditFloor },
+            update: { creditFloor },
+        });
     }
 
     /** All-time credits consumed through the managed LLM proxy (as a positive number). */
@@ -395,8 +450,17 @@ export class CreditsService extends Service {
         }
 
         const pricing = await this.pricingService.getOrCreatePricing(organizationId);
-        const creditsPerUsd = pricing.creditsPerTopup / (pricing.stripeTopupAmountCents / 100);
-        const cost = Math.max(1, Math.ceil(costUsd * creditsPerUsd));
+        const cost = usdToCreditCost(costUsd, pricing);
+        if (cost == null) {
+            this.logger.warn("Organization has no usable credits-per-USD rate, skipping LLM proxy deduction", {
+                organizationId,
+                costUsd,
+                requestId,
+                creditsPerTopup: pricing.creditsPerTopup,
+                stripeTopupAmountCents: pricing.stripeTopupAmountCents,
+            });
+            return false;
+        }
         const transactionId = `ctr_llm_${requestId}`;
 
         const didDeduct = await this.db
@@ -498,9 +562,9 @@ export class CreditsService extends Service {
      * against samples that never arrived - is skipped entirely, matching the
      * non-positive-cost guard below.
      *
-     * Balance floors at zero rather than requiring sufficiency - a mid-flight
-     * environment must never be half-billed. Idempotent on `usageWindowId`
-     * (one deduction per window, however many times the sweep retries it).
+     * Balance floors at the org's `creditFloor` (0 by default) rather than requiring
+     * sufficiency - a mid-flight environment must never be half-billed. Idempotent on
+     * `usageWindowId` (one deduction per window, however many times the sweep retries it).
      */
     async deductCreditsForPreviewUsage(
         organizationId: string,
@@ -530,104 +594,22 @@ export class CreditsService extends Service {
         }
 
         const cost = Math.max(1, Math.ceil(rawCost));
-        const transactionId = `ctr_preview_${usageWindowId}`;
+        const { deducted } = await deductCreditsFloored(
+            this.db,
+            {
+                organizationId,
+                transactionId: `ctr_preview_${usageWindowId}`,
+                transactionType: CreditTransactionType.PREVIEW_RUNTIME_CONSUMPTION,
+                cost,
+                fkColumn: { name: "usage_window_id", value: usageWindowId },
+            },
+            this.logger,
+        );
 
-        const didDeduct = await this.db
-            .$transaction(async (tx) => {
-                const rawTx = this.asRawTx(tx);
-                const [result] = await rawTx.$queryRaw<Array<DeductCreditsResultRow>>`
-                    WITH customer AS (
-                        SELECT organization_id, credit_balance, subscription_credit_balance
-                        FROM billing_customer
-                        WHERE organization_id = ${organizationId}
-                        FOR UPDATE
-                    ),
-                    eligible AS (
-                        SELECT
-                            organization_id,
-                            credit_balance,
-                            subscription_credit_balance,
-                            LEAST(subscription_credit_balance, ${cost}) AS subscription_consumed
-                        FROM customer
-                    ),
-                    inserted AS (
-                        INSERT INTO credit_transaction (
-                            id,
-                            organization_id,
-                            type,
-                            amount,
-                            balance_after,
-                            usage_window_id
-                        )
-                        SELECT
-                            ${transactionId},
-                            organization_id,
-                            'PREVIEW_RUNTIME_CONSUMPTION'::credit_transaction_type,
-                            ${-cost},
-                            GREATEST(credit_balance - ${cost}, 0),
-                            ${usageWindowId}
-                        FROM eligible
-                        ON CONFLICT (id) DO NOTHING
-                        RETURNING id
-                    ),
-                    updated AS (
-                        UPDATE billing_customer bc
-                        SET
-                            credit_balance = GREATEST(eligible.credit_balance - ${cost}, 0),
-                            subscription_credit_balance =
-                                GREATEST(eligible.subscription_credit_balance - eligible.subscription_consumed, 0)
-                        FROM eligible
-                        WHERE bc.organization_id = eligible.organization_id
-                          AND EXISTS (SELECT 1 FROM inserted)
-                        RETURNING bc.credit_balance, bc.subscription_credit_balance
-                    )
-                    SELECT
-                        (SELECT COUNT(*)::bigint FROM inserted) AS inserted_count,
-                        (SELECT credit_balance FROM updated LIMIT 1) AS new_balance,
-                        (SELECT subscription_credit_balance FROM updated LIMIT 1) AS new_subscription_balance
-                `;
-                if (result == null) {
-                    this.logger.warn("Previewkit usage deduction query returned no result row", {
-                        organizationId,
-                        usageWindowId,
-                    });
-                    return false;
-                }
-
-                if (result.inserted_count === 0n) {
-                    this.logger.info("Previewkit usage deduction already recorded, skipping", {
-                        organizationId,
-                        usageWindowId,
-                    });
-                    return false;
-                }
-
-                this.logger.info("Previewkit usage credits deducted", {
-                    organizationId,
-                    usageWindowId,
-                    vcpuSeconds,
-                    gbSeconds,
-                    cost,
-                    newBalance: result.new_balance,
-                    newSubscriptionBalance: result.new_subscription_balance,
-                });
-                return true;
-            })
-            .catch((error: unknown) => {
-                if (isUniqueConstraintError(error)) {
-                    this.logger.info("Previewkit usage deduction already recorded, skipping", {
-                        organizationId,
-                        usageWindowId,
-                    });
-                    return false;
-                }
-                throw error;
-            });
-
-        if (didDeduct) {
+        if (deducted) {
             await this.autoTopUpService.triggerAutoTopUp(organizationId, pricing);
         }
-        return didDeduct;
+        return deducted;
     }
 
     async refundCreditsForGeneration(generationId: string) {

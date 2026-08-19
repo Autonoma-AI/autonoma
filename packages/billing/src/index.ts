@@ -1,7 +1,13 @@
 export { createBillingService, createStripeBillingService, createBillingServices } from "./billing.service";
 export type { BillingServices } from "./billing.service";
 export type { BillingService, StripeBillingService } from "./types";
-export type { DeductGenerationContext, LlmProxyGateReason, LlmProxyGateResult, PreviewDeployGateResult } from "./types";
+export type {
+    AnalysisCreditsGateResult,
+    DeductGenerationContext,
+    LlmProxyGateReason,
+    LlmProxyGateResult,
+    PreviewDeployGateResult,
+} from "./types";
 export { getStripe } from "./stripe-client";
 export { syncStripeDataToDb } from "./stripe-sync";
 export { processWebhookEvent } from "./webhook-handlers";
@@ -56,3 +62,4 @@ export { referenceToUsdRates, syncComputePricingReference } from "./aws-pricing/
 export type { ComputePricingSyncResult } from "./aws-pricing/compute-pricing-reference.service";
 export { persistAiCosts } from "./ai-cost-persister.service";
 export type { AiCostAnchor } from "./ai-cost-persister.service";
+export { deductCreditsForBuildUsage } from "./deduct-credits-for-build-usage";

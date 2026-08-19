@@ -168,7 +168,7 @@ export function buildServices({
         triggerPreviewTeardown,
         triggerPreviewRedeployApp,
     );
-    const diffsTriggerService = new DiffsTriggerService(conn, githubService, startAnalysisRun);
+    const diffsTriggerService = new DiffsTriggerService(conn, githubService, billingService, startAnalysisRun);
     const onboardingOptions = {
         previewkitClient: {
             deployApplicationMain: (applicationId: string, organizationId: string) =>

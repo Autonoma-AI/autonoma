@@ -67,8 +67,11 @@ export type LlmProxyGateReason = "out_of_credits" | "grace_period_expired" | "fr
 
 export type LlmProxyGateResult = { allowed: true } | { allowed: false; reason: LlmProxyGateReason };
 
-/** Why a preview deploy/redeploy was declined - currently only one reason: the org's combined balance is <= 0. */
+/** Why a preview deploy/redeploy was declined - currently only one reason: the org's balance is at or below its credit floor. */
 export type PreviewDeployGateResult = { allowed: true } | { allowed: false; reason: "out_of_credits" };
+
+/** Why a new PR analysis run was declined - currently only one reason: the org's balance is at or below its credit floor. */
+export type AnalysisCreditsGateResult = { allowed: true } | { allowed: false; reason: "out_of_credits" };
 
 export type BillingSessionResult = {
     url: string | null;
@@ -122,6 +125,8 @@ export interface BillingService {
         gbSeconds: number,
     ): Promise<boolean>;
     checkPreviewDeployCreditsGate(organizationId: string): Promise<PreviewDeployGateResult>;
+    checkAnalysisCreditsGate(organizationId: string): Promise<AnalysisCreditsGateResult>;
+    updateCreditFloor(organizationId: string, creditFloor: number): Promise<void>;
     refundCreditsForGeneration(generationId: string): Promise<void>;
     redeemPromoCode(organizationId: string, code: string): Promise<RedeemPromoCodeResult>;
     listPromoCodes(input?: ListPromoCodesInput): Promise<ListPromoCodesResult>;

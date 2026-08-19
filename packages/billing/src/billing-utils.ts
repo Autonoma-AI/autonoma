@@ -27,6 +27,23 @@ export function computePreviewUsageCost(vcpuSeconds: number, gbSeconds: number, 
     return vcpuCost + gbCost;
 }
 
+/**
+ * Whole-credit charge for a USD amount, converted at the same rate top-ups are priced
+ * (`creditsPerTopup` per `stripeTopupAmountCents`), so the existing margin carries over and there's
+ * no separate pricing knob. Any real spend costs at least one credit.
+ *
+ * Returns `undefined` when the org's row yields no usable exchange rate - a zero
+ * `stripeTopupAmountCents` (which would divide to an infinite rate and charge an unbounded number of
+ * credits) or a zero `creditsPerTopup`. Neither is reachable through the app, which never writes
+ * either column, so it means a hand-edited row: callers skip the deduction and log rather than
+ * charge a garbage amount.
+ */
+export function usdToCreditCost(costUsd: number, pricing: BillingPricingValues): number | undefined {
+    const creditsPerUsd = pricing.creditsPerTopup / (pricing.stripeTopupAmountCents / 100);
+    if (!Number.isFinite(creditsPerUsd) || creditsPerUsd <= 0) return undefined;
+    return Math.max(1, Math.ceil(costUsd * creditsPerUsd));
+}
+
 export function buildAutoTopUpIdempotencyKey(organizationId: string) {
     const fiveMinuteBucket = Math.floor(Date.now() / (5 * 60 * 1000));
     return `auto-topup:${organizationId}:${fiveMinuteBucket}`;

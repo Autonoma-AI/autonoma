@@ -138,6 +138,24 @@ integrationTestSuite({
             expect(customer.creditBalance).toBe(1_000);
         });
 
+        test("clamps at the org's own negative credit floor instead of zero", async ({ harness }) => {
+            const orgId = await harness.createOrgWithBalance(5);
+            await harness.db.billingCustomer.update({ where: { organizationId: orgId }, data: { creditFloor: -20 } });
+            await setPreviewUsageRates(harness, orgId);
+
+            // 1h vCPU + 1h memory -> 12 credits: 5 - 12 = -7, above the -20 floor, so it goes through in full.
+            const didDeduct = await harness.creditsService.deductCreditsForPreviewUsage(
+                orgId,
+                "win-floor-1",
+                3600,
+                3600,
+            );
+            expect(didDeduct).toBe(true);
+
+            const customer = await harness.db.billingCustomer.findUniqueOrThrow({ where: { organizationId: orgId } });
+            expect(customer.creditBalance).toBe(-7);
+        });
+
         test("skips deduction for a window with zero measured usage", async ({ harness }) => {
             const orgId = await harness.createOrgWithBalance(1_000);
             await setPreviewUsageRates(harness, orgId);

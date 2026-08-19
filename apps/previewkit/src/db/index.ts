@@ -1,4 +1,9 @@
-import { type BuildCapacityType, fetchBuildInstanceHourlyPrice, isEc2InstanceType } from "@autonoma/billing";
+import {
+    type BuildCapacityType,
+    deductCreditsForBuildUsage,
+    fetchBuildInstanceHourlyPrice,
+    isEc2InstanceType,
+} from "@autonoma/billing";
 import { db, type PrismaClient } from "@autonoma/db";
 import { encryptPreviewkitBypassToken } from "@autonoma/utils";
 import type { BuildRuntime } from "../builder/builder";
@@ -287,11 +292,14 @@ export async function recordBuildFinished(input: BuildFinishedInput): Promise<vo
 }
 
 /**
- * Records each app build's compute usage (see `computeAppBuildResourceUsage`) for
- * later billing - not deducted yet, just measured and made explainable per org.
- * Runs regardless of the app build's outcome (success or failed) since compute was
- * consumed either way. Best-effort per app build: one failing to record must not
- * block the others or the caller.
+ * Records each app build's compute usage (see `computeAppBuildResourceUsage`), then - concurrently -
+ * deducts its cost from the org's balance (`deductBuildUsageCredits`, floored at the org's
+ * `creditFloor`) and records its real AWS cost (`recordAppBuildRealCost`). Runs regardless of the app
+ * build's outcome (success or failed) since compute was consumed either way. Best-effort per app
+ * build, and per step: the usage recording gates both later steps (a build with no usage row has
+ * nothing to charge or price against), but never blocks sibling builds or the caller; a failure in
+ * either concurrent step is contained within it - the usage row itself is the durable record either
+ * way.
  *
  * `outcomesByAppName` is the original per-app outcome map `recordBuildFinished` was
  * called with - `instanceType`/`capacityType` live there (only ever set on a
@@ -332,16 +340,44 @@ async function meterAppBuilds(
                 return;
             }
 
-            await recordAppBuildRealCost(
-                appBuild.id,
-                instanceType,
-                capacityType,
-                appBuild.durationMs,
-                hourlyPriceByKey,
-                logger,
-            );
+            // Independent of each other: the deduction touches billing_customer/credit_transaction,
+            // the real-cost step prices against AWS and updates previewkit_app_build_usage. Running
+            // them together overlaps the AWS round-trip with the deduction's transaction instead of
+            // queueing behind it. Both contain their own failures, so neither can reject this
+            // Promise.all and strand the other.
+            await Promise.all([
+                deductBuildUsageCredits(appBuild.id, organizationId, vcpuSeconds, gbSeconds, logger),
+                recordAppBuildRealCost(
+                    appBuild.id,
+                    instanceType,
+                    capacityType,
+                    appBuild.durationMs,
+                    hourlyPriceByKey,
+                    logger,
+                ),
+            ]);
         }),
     );
+}
+
+/**
+ * Best-effort credit deduction for one app build's metered compute - a billing side-effect must never
+ * fail the build that produced it, and the usage row is the durable record either way. Contains its
+ * own failure (rather than leaving that to the caller) so it can be run concurrently with
+ * {@link recordAppBuildRealCost} without one step's throw abandoning the other.
+ */
+async function deductBuildUsageCredits(
+    appBuildId: string,
+    organizationId: string,
+    vcpuSeconds: number,
+    gbSeconds: number,
+    logger: Logger,
+): Promise<void> {
+    try {
+        await deductCreditsForBuildUsage(db, organizationId, appBuildId, vcpuSeconds, gbSeconds, logger);
+    } catch (err) {
+        logger.error("Failed to deduct app build usage credits", { appBuildId, organizationId, err });
+    }
 }
 
 /**

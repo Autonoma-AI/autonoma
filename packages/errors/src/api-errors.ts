@@ -78,6 +78,16 @@ export class InsufficientPreviewCreditsError extends APIError {
 }
 
 /**
+ * Thrown when an organization's credit balance is at or below its credit floor and a new PR
+ * analysis run is declined. An already-running run is never cancelled for this - only new starts.
+ */
+export class InsufficientAnalysisCreditsError extends APIError {
+    constructor(message = "Insufficient credits to start a new PR analysis run") {
+        super(message);
+    }
+}
+
+/**
  * Thrown when a call to a third-party API (e.g. Vercel, Stripe, GitHub) fails,
  * either due to a network error or a non-2xx response. Carries the provider
  * name so callers/observability can attribute the failure, and preserves the

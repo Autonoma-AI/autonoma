@@ -144,13 +144,15 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
   also records each app build's compute (`meterAppBuilds`): since buildkit nodes can't be measured via Prometheus
   (excluded from the cAdvisor scrape, and buildkitd escapes its cgroup to host-root anyway) but every build gets
   its own dedicated node of a known fixed shape, usage is derived from the app build's `durationMs` times that
-  shape (`computeAppBuildResourceUsage`, local to this file) and recorded to `PreviewkitAppBuildUsage` - measured
-  and explainable per org, but not yet wired to credit deduction (that's a deliberate follow-up).
-  `PreviewkitAppBuildUsage.instanceType`/`capacityType` carry the real EC2 instance Karpenter provisioned for that
-  build (e.g. "m7i.xlarge"/"spot"), read off the node's labels by `BuildKitJobManager.provision()`
-  (`builder/buildkit-job-manager.ts`) once the build pod is scheduled - the node-pool's requirements only bound a
-  range (m-family, gen 6-8, xlarge, spot or on-demand), not which concrete instance was actually used. Best-effort:
-  a node-lookup failure never fails the build, it just leaves both fields unset.
+  shape (`computeAppBuildResourceUsage`, local to this file) and recorded to `PreviewkitAppBuildUsage`, then
+  deducted from the org's balance via `@autonoma/billing`'s `deductCreditsForBuildUsage` - floored at the org's
+  own `creditFloor` (0 by default) rather than requiring sufficiency, so an already-running build is never
+  half-billed. `PreviewkitAppBuildUsage.instanceType`/`capacityType` carry the real EC2 instance Karpenter
+  provisioned for that build (e.g. "m7i.xlarge"/"spot"), read off the node's labels by
+  `BuildKitJobManager.provision()` (`builder/buildkit-job-manager.ts`) once the build pod is scheduled - the
+  node-pool's requirements only bound a range (m-family, gen 6-8, xlarge, spot or on-demand), not which concrete
+  instance was actually used. Best-effort: a node-lookup failure never fails the build, it just leaves both
+  fields unset.
 - `recipes/` - infra service recipes (postgres, redis, valkey, mongodb, upstash, api-gateway, docker-image, aws, temporal).
 - `git-provider/` - GitHub provider. The deploy/redeploy/teardown target shapes live in `@autonoma/types`;
   the runner keeps no mirror of them.

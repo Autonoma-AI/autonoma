@@ -2,6 +2,7 @@ import {
     APIError,
     BadRequestError,
     ConflictError,
+    InsufficientAnalysisCreditsError,
     InsufficientCreditsError,
     InsufficientPreviewCreditsError,
     InternalError,
@@ -61,6 +62,7 @@ const apiErrorToTrpcCode: Array<{ ctor: APIErrorCtor; code: TRPCErrorCode }> = [
     { ctor: InternalError, code: "INTERNAL_SERVER_ERROR" },
     { ctor: InsufficientCreditsError, code: "PRECONDITION_FAILED" },
     { ctor: InsufficientPreviewCreditsError, code: "PRECONDITION_FAILED" },
+    { ctor: InsufficientAnalysisCreditsError, code: "PRECONDITION_FAILED" },
     { ctor: SubscriptionGracePeriodExpiredError, code: "PRECONDITION_FAILED" },
     { ctor: TooManyRequestsError, code: "TOO_MANY_REQUESTS" },
 ];

@@ -235,6 +235,21 @@ export const adminRouter = router({
                     creditsPerGbMemoryHour: input.creditsPerGbMemoryHour,
                 }),
             ),
+        /**
+         * Sets how far below zero an org's credit balance may go before new previewkit deploys/PR
+         * analysis runs are blocked. Deliberate and admin-only, same as setting a custom compute
+         * pricing rate - there is no automatic "this org is enterprise" detection.
+         */
+        updateCreditFloor: internalProcedure
+            .input(
+                z.object({
+                    organizationId: z.string().min(1),
+                    creditFloor: z.number().int().nonpositive(),
+                }),
+            )
+            .mutation(({ ctx: { services }, input }) =>
+                services.billing.updateCreditFloor(input.organizationId, input.creditFloor),
+            ),
     }),
     usage: router({
         /**

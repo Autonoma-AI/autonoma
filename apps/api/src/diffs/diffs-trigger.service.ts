@@ -1,5 +1,6 @@
+import type { BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
-import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
+import { BadRequestError, InsufficientAnalysisCreditsError, InternalError, NotFoundError } from "@autonoma/errors";
 import { recordBranchDeployment } from "@autonoma/scenario";
 import { TestSuiteStore } from "@autonoma/test-suite";
 import { hasGoneLive } from "@autonoma/types";
@@ -7,6 +8,7 @@ import type { AnalysisRunWorkflowInput } from "@autonoma/workflow";
 import { isBaseTrunkGateEnforced } from "../github/base-trunk-gate";
 import { sameGitRef } from "../github/git-ref";
 import type { GitHubInstallationService } from "../github/github-installation.service";
+import { postInsufficientCreditsComment } from "../github/insufficient-credits-comment";
 import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
 import { Service } from "../routes/service";
 
@@ -82,10 +84,52 @@ export class DiffsTriggerService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly githubInstallationService: GitHubInstallationService,
+        private readonly billingService: Pick<BillingService, "checkAnalysisCreditsGate">,
         /** Injected so a test can observe what a trigger asked for without standing up Temporal. */
         private readonly startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<unknown>,
     ) {
         super();
+    }
+
+    /**
+     * Declines a new PR analysis run once the org is at/below its credit floor - an already-running
+     * run is never cancelled by this, only new starts. Comments on the PR (the shared, dedup'd
+     * "out of credits" notice - also used by the previewkit-deploy gate) before throwing. Resolving the
+     * repo and commenting are best-effort: a GitHub failure must still surface as the credits error,
+     * never as a GitHub error. Main-branch diffs have no PR to comment on or gate against, so this is
+     * only called from `triggerPrDiffs`.
+     */
+    private async assertAnalysisCreditsAvailable(
+        organizationId: string,
+        repoId: number,
+        prNumber: number,
+        headSha: string,
+    ): Promise<void> {
+        const gate = await this.billingService.checkAnalysisCreditsGate(organizationId);
+        if (gate.allowed) return;
+
+        this.logger.info("Blocking PR analysis: organization is out of credits", { organizationId, repoId, prNumber });
+
+        try {
+            const repository = await this.githubInstallationService.getRepository(organizationId, repoId);
+            await postInsufficientCreditsComment(
+                this.githubInstallationService,
+                this.db,
+                organizationId,
+                repository.fullName,
+                prNumber,
+                headSha,
+            );
+        } catch (error) {
+            this.logger.warn("Failed to post insufficient-credits PR comment", {
+                organizationId,
+                repoId,
+                prNumber,
+                error: String(error),
+            });
+        }
+
+        throw new InsufficientAnalysisCreditsError();
     }
 
     async triggerDiffs(params: TriggerDiffsParams): Promise<TriggerDiffsResult> {
@@ -221,6 +265,8 @@ export class DiffsTriggerService extends Service {
                 return { branchId: branch.id };
             }
         }
+
+        await this.assertAnalysisCreditsAvailable(organizationId, repoId, prNumber, headSha);
 
         await this.startRun({
             branchId: branch.id,
