@@ -127,4 +127,8 @@ export class DisabledBillingService implements BillingService {
     getComputePricingReferences() {
         return this.billingPricingService.getComputePricingReferences();
     }
+
+    getPricing(organizationId: string) {
+        return this.billingPricingService.getOrCreatePricing(organizationId);
+    }
 }

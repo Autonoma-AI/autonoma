@@ -61,6 +61,7 @@ import { ScenariosService } from "./scenarios/scenarios.service";
 import { SnapshotEditService } from "./snapshot-edit/snapshot-edit.service";
 import { TestGenerationsService } from "./test-generations/test-generations.service";
 import { TestsService } from "./tests/tests.service";
+import { UsageService } from "./usage/usage.service";
 
 export interface Services {
     admin: AdminService;
@@ -100,6 +101,7 @@ export interface Services {
     rateLimiter: RateLimiterService;
     onboardingAgentSession: OnboardingAgentSessionService;
     onboardingAnalytics: OnboardingAnalytics;
+    usage: UsageService;
     getVercelEncryptionHelper: () => EncryptionHelper;
 }
 
@@ -262,6 +264,7 @@ export function buildServices({
         previewkitTrigger,
         previewkitWrite,
         previewkitEnvironments: previewkitEnvironmentsService,
+        usage: new UsageService(conn, billingService),
         getVercelEncryptionHelper,
     };
 }

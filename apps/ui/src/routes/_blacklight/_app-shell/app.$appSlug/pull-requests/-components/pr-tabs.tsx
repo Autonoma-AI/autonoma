@@ -1,8 +1,9 @@
 import { Tabs, TabsList, TabsTrigger } from "@autonoma/blacklight";
+import { useAuth } from "lib/auth";
 import { usePreviewEnvironmentSummary } from "lib/query/deployments.queries";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
-export type PRTab = "overview" | "preview";
+export type PRTab = "overview" | "preview" | "usage";
 
 // The tab switcher, rendered as a bare Tabs widget (the meta row that hosts it owns the
 // border/background/padding). Rendered only for PRs backed by a real previewkit_environment: a
@@ -17,6 +18,7 @@ export function PRTabs({
   active: PRTab;
 }) {
   const { data: summary } = usePreviewEnvironmentSummary(applicationId, prNumber);
+  const { isAdmin } = useAuth();
   if (summary.source !== "previewkit") return null;
 
   return (
@@ -34,6 +36,14 @@ export function PRTabs({
         >
           Preview Environment
         </TabsTrigger>
+        {isAdmin && (
+          <TabsTrigger
+            value="usage"
+            render={<AppLink to="/app/$appSlug/pull-requests/$prNumber/usage" params={{ prNumber }} />}
+          >
+            Usage
+          </TabsTrigger>
+        )}
       </TabsList>
     </Tabs>
   );

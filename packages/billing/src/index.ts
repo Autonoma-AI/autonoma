@@ -26,6 +26,8 @@ export { PrometheusClient } from "./preview-usage-meter/prometheus-client";
 export { PreviewUsageMeterSweepService } from "./preview-usage-meter/preview-usage-meter-sweep.service";
 export type { PreviewUsageMeterSweepResult } from "./preview-usage-meter/preview-usage-meter-sweep.service";
 export type { VercelOverageStatus } from "./vercel-overage.service";
+export { computePreviewUsageCost } from "./billing-utils";
+export type { BillingPricingValues } from "./billing-pricing.types";
 export {
     AWS_EC2_REGION_US_EAST_1,
     AWS_PRICING_LOCATION_US_EAST_1,

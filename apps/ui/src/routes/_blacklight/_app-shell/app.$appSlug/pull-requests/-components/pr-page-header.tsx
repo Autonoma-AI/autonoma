@@ -29,7 +29,7 @@ export function PRPageHeader({ prNumber }: { prNumber: number }) {
   const repository = useApplicationRepositoryFromGitHub(app.id);
   const prUrl = pr.data?.url ?? buildPullRequestUrl(repository.data, prNumber);
   const { pathname } = useLocation();
-  const activeTab: PRTab = pathname.endsWith("/preview") ? "preview" : "overview";
+  const activeTab = resolveActiveTab(pathname);
 
   // Prefer the live GitHub title, fall back to the cached PR title (same source as the PR list), and
   // only fall back to the branch name when neither is available.
@@ -134,6 +134,12 @@ function RunAnalysisButton({ applicationId, prNumber }: { applicationId: string;
       {runAnalysis.isPending ? "Starting..." : "Run analysis"}
     </Button>
   );
+}
+
+function resolveActiveTab(pathname: string): PRTab {
+  if (pathname.endsWith("/preview")) return "preview";
+  if (pathname.endsWith("/usage")) return "usage";
+  return "overview";
 }
 
 export function buildPullRequestUrl(repository: Repository | undefined, prNumber: number) {

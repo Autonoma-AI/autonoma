@@ -7,10 +7,20 @@ import superjson from "superjson";
  * router, one optional key per procedure. A procedure's value is its FULL
  * output type, so fixtures typecheck against the real API and rot loudly
  * when a router output changes.
+ *
+ * `admin` is the one router that nests a further sub-router (`admin.usage`, `admin.billing`), so its
+ * procedure entries can alternatively be a partial map of THAT sub-router's own procedures, recursing
+ * one more level via `ProcedureOrRouter` - otherwise mocking one `admin.billing` procedure would
+ * demand fixtures for every unrelated promo-code mutation beside it. Scoped to `admin` only, so every
+ * other router still requires a procedure's FULL output, unweakened.
  */
 export type TrpcFixtures = {
-    [R in keyof RouterOutputs]?: { [P in keyof RouterOutputs[R]]?: RouterOutputs[R][P] };
+    [R in keyof RouterOutputs]?: R extends "admin"
+        ? { [P in keyof RouterOutputs[R]]?: ProcedureOrRouter<RouterOutputs[R][P]> }
+        : { [P in keyof RouterOutputs[R]]?: RouterOutputs[R][P] };
 };
+
+type ProcedureOrRouter<T> = T extends readonly unknown[] ? T : T extends object ? T | { [K in keyof T]?: T[K] } : T;
 
 /**
  * Procedures that should answer with an error instead of data, keyed by dotted

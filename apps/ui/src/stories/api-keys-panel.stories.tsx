@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
+import { dashboardFixtures } from "lib/storybook/dashboard-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { userEvent, within } from "storybook/test";
-import { dashboardFixtures } from "lib/storybook/dashboard-fixtures";
 
 /** The signed-in user in the app-shell session fixture (Ada Lovelace), so one key reads as "mine". */
 const SIGNED_IN_USER_ID = "user_fixture_01";

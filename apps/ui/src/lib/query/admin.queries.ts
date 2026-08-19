@@ -192,3 +192,48 @@ export function useSetPromoCodeActiveAdmin() {
         successToast: { title: "Promo code updated" },
     });
 }
+
+/**
+ * AI cost recorded against a branch, broken down by tag. Admin-only, so this is a plain
+ * `useQuery` gated by `enabled` rather than a page-level suspense query - a non-admin
+ * viewing the same PR must never issue (or block on) the FORBIDDEN request.
+ */
+export function useAdminBranchAiCost(branchId: string, enabled: boolean) {
+    return useQuery({
+        ...trpc.admin.usage.branchAiCost.queryOptions({ branchId }),
+        enabled,
+    });
+}
+
+/** Previewkit build + running compute usage for a preview environment. Admin-only, see above. */
+export function useAdminEnvironmentComputeUsage(environmentId: string, enabled: boolean) {
+    return useQuery({
+        ...trpc.admin.usage.environmentComputeUsage.queryOptions({ environmentId }),
+        enabled,
+    });
+}
+
+/**
+ * The global, AWS-derived compute pricing reference (one row per pool) the pricing-drift
+ * cronjob keeps current. Admin-only, see above.
+ */
+export function useAdminComputePricingReference(enabled: boolean) {
+    return useQuery({
+        ...trpc.admin.billing.getComputePricingReference.queryOptions(),
+        enabled,
+    });
+}
+
+/** Sets an org's live previewkit compute-usage rate. Admin-only. */
+export function useUpdateComputePricing() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.admin.billing.updateComputePricing.mutationOptions({
+            onSuccess: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.admin.usage.environmentComputeUsage.queryKey() });
+            },
+        }),
+        successToast: { title: "Compute pricing updated" },
+        errorToast: { title: "Failed to update compute pricing" },
+    });
+}

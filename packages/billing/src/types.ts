@@ -5,6 +5,7 @@ import type {
     CreditTransaction,
 } from "@autonoma/db";
 import type { BillingCheckoutType } from "@autonoma/types";
+import type { BillingPricingValues } from "./billing-pricing.types";
 import type { VercelOverageStatus } from "./vercel-overage.service";
 
 export type RedeemPromoCodeResult = {
@@ -133,6 +134,7 @@ export interface BillingService {
         rates: { creditsPerVcpuHour: number; creditsPerGbMemoryHour: number },
     ): Promise<void>;
     getComputePricingReferences(): Promise<ComputePricingReference[]>;
+    getPricing(organizationId: string): Promise<BillingPricingValues>;
 }
 
 export interface StripeBillingService {

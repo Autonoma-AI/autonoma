@@ -16,6 +16,12 @@ export function formatDuration(ms: number | null | undefined): string {
     return parts.join(" ");
 }
 
+/** Format a cost stored as microdollars (1,000,000ths of a dollar) as a USD string. */
+export function formatMicrodollars(microdollars: number): string {
+    const dollars = microdollars / 1_000_000;
+    return dollars.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 4 });
+}
+
 /** Format a date to a human-readable string. */
 export function formatDate(date: Date) {
     return date.toLocaleString(undefined, {

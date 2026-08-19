@@ -166,4 +166,8 @@ export class EnabledBillingService implements BillingService, StripeBillingServi
     getComputePricingReferences() {
         return this.billingPricingService.getComputePricingReferences();
     }
+
+    getPricing(organizationId: string) {
+        return this.billingPricingService.getOrCreatePricing(organizationId);
+    }
 }

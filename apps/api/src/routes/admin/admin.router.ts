@@ -236,4 +236,22 @@ export const adminRouter = router({
                 }),
             ),
     }),
+    usage: router({
+        /**
+         * AI cost recorded against a branch (every checkpoint's generations, runs, and
+         * investigation activity), broken down by tag. Admin-only operational cost
+         * visibility - shown on the PR's Analysis tab.
+         */
+        branchAiCost: internalProcedure
+            .input(z.object({ branchId: z.string().min(1) }))
+            .query(({ ctx: { services }, input }) => services.usage.branchAiCost(input.branchId)),
+        /**
+         * Previewkit build + running compute usage for a preview environment, priced
+         * through the same pricing table billing itself uses. Admin-only operational
+         * cost visibility - shown on the PR's Preview Environment tab.
+         */
+        environmentComputeUsage: internalProcedure
+            .input(z.object({ environmentId: z.string().min(1) }))
+            .query(({ ctx: { services }, input }) => services.usage.environmentComputeUsage(input.environmentId)),
+    }),
 });
