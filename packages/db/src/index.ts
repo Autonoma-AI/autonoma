@@ -10,7 +10,6 @@ import type {
     evidenceManifestEntrySchema,
     investigationEvidenceSchema,
     investigationRunStepSchema,
-    issueReportSchema,
     OnboardingAgentPendingRequestSchema,
     primaryScreenshotSchema,
     ScenarioRecipeSchema,
@@ -148,8 +147,6 @@ export {
 declare global {
     export namespace PrismaJson {
         export type ModelConversation = AIModelMessage[];
-        /** The healing-authored customer-facing report stored on `Issue.report`. */
-        export type IssueReport = z.infer<typeof issueReportSchema>;
         export type ScenarioRecipeJson = z.infer<typeof ScenarioRecipeSchema>;
         export type ScenarioStructureJson = z.infer<typeof ScenarioStructureJsonSchema>;
         /** Per-classification code/run evidence stored on AnalysisClassification.evidence (display-only). */

@@ -148,8 +148,6 @@ model Organization {
   scenarioRecipeVersions  ScenarioRecipeVersion[]
   scenarioRecipeEdits     ScenarioRecipeEdit[]
   scenarioInstances       ScenarioInstance[]
-  issues                  Issue[]
-  bugs                    Bug[]
   githubInstallation      GitHubInstallation?
   billingPricing          BillingPricing?
   settings                OrganizationSettings?
@@ -425,7 +423,6 @@ model Application {
   mainBranchInfo           MainBranchInfo?
   onboardingState          OnboardingState?
   applicationSetups        ApplicationSetup[]
-  bugs                     Bug[]
   previewkitSecrets        PreviewkitSecret[]
   vercelProjectConnections VercelProjectConnection[]
 
@@ -677,7 +674,6 @@ model Branch {
   mainOfApplication Application?       @relation("MainBranch")
   snapshots         BranchSnapshot[]
   deployments       BranchDeployment[]
-  bugs              Bug[]
   analysisIssues    AnalysisIssue[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
@@ -799,7 +795,6 @@ model BranchSnapshot {
   analysisJob           AnalysisJob?
   analysisReport        AnalysisReport?
   investigationAiCosts  AiCostRecord[]         @relation("InvestigationAiCost")
-  issues                Issue[]
   vercelDeployments     VercelDeployment[]
   analysisIssueVersions AnalysisIssueVersion[]
 
@@ -849,8 +844,6 @@ model TestCase {
   primaryOfIssueVersions AnalysisIssueVersion[] @relation("IssueVersionPrimaryTestCase")
   /// Retired back-relation of the kept `AnalysisIssue.primaryTestCase`; drops with that column one deploy later (#2580).
   primaryOfIssues        AnalysisIssue[]        @relation("IssuePrimaryTestCase")
-
-  bugEvidence BugTestCaseEvidence[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -958,126 +951,6 @@ model TestGeneration {
   @@index([testPlanId])
   @@index([stepsId])
   @@map("test_generation")
-}
-
-// ─── Generation Review ───────────────────────────────────────────────────────
-
-// ─── Issue ───────────────────────────────────────────────────────────────────
-
-enum IssueSeverity {
-  critical
-  high
-  medium
-  low
-
-  @@map("issue_severity")
-}
-
-enum IssueKind {
-  application_bug
-  engine_limitation
-  unknown_issue
-  scenario_unsupported
-
-  @@map("issue_kind")
-}
-
-model Issue {
-  id String @id @default(cuid())
-
-  kind        IssueKind     @default(application_bug)
-  severity    IssueSeverity
-  title       String
-  description String        @db.Text
-  dismissed   Boolean       @default(false)
-
-  // The healing-authored, evidence-grounded customer-facing report for this
-  // occurrence (Expected/Actual + narrative). Null when no report was authored.
-  /// [IssueReport]
-  report Json?
-
-  // Set for the Bug-less, snapshot-scoped kinds (engine_limitation, unknown_issue,
-  // scenario_unsupported): none aggregates into a customer-facing Bug, so each lives
-  // with its snapshot.
-  snapshotId String?         @map("snapshot_id")
-  snapshot   BranchSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-
-  bugId String? @map("bug_id")
-  bug   Bug?    @relation(fields: [bugId], references: [id], onDelete: SetNull)
-
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([snapshotId])
-  @@index([bugId])
-  @@index([organizationId])
-  @@map("issue")
-}
-
-// ─── Bug ─────────────────────────────────────────────────────────────────────
-
-enum BugStatus {
-  open
-  resolved
-  regressed
-
-  @@map("bug_status")
-}
-
-model Bug {
-  id          String        @id @default(cuid())
-  status      BugStatus     @default(open)
-  title       String
-  description String        @db.Text
-  severity    IssueSeverity
-
-  applicationId String      @map("application_id")
-  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-
-  // The branch this bug is scoped to, derived from the snapshot it was detected on.
-  // Nullable during the additive migration: pre-existing bugs keep branchId = null
-  // (abandoned by branch-scoped reads). New bugs always stamp it. The denormalized
-  // applicationId is retained so application-scoped reads keep working.
-  branchId String? @map("branch_id")
-  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
-
-  firstSeenAt DateTime  @default(now()) @map("first_seen_at")
-  lastSeenAt  DateTime  @default(now()) @map("last_seen_at")
-  resolvedAt  DateTime? @map("resolved_at")
-
-  evidence BugTestCaseEvidence[]
-  issues   Issue[]
-
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([applicationId, lastSeenAt])
-  @@index([status])
-  @@index([branchId, status])
-  @@index([branchId, lastSeenAt])
-  @@index([organizationId])
-  @@map("bug")
-}
-
-model BugTestCaseEvidence {
-  id String @id @default(cuid())
-
-  bugId String @map("bug_id")
-  bug   Bug    @relation(fields: [bugId], references: [id], onDelete: Cascade)
-
-  testCaseId String   @map("test_case_id")
-  testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
-
-  firstSeenAt DateTime @default(now()) @map("first_seen_at")
-  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
-
-  @@unique([bugId, testCaseId])
-  @@index([testCaseId])
-  @@map("bug_test_case_evidence")
 }
 
 // ─── Step Input / Output ──────────────────────────────────────────────────────
