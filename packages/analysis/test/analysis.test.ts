@@ -113,7 +113,7 @@ analysisSuite({
             expect(result).toEqual({ settled: false, reason: "superseded" });
             expect(await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } })).toBeNull();
             const issue = await harness.db.analysisIssue.findUniqueOrThrow({ where: { id: existing.id } });
-            expect(issue.status).toBe("open");
+            expect(issue.resolvedAt).toBeNull();
             expect(await harness.db.analysisIssue.count({ where: { branchId: run.branchId } })).toBe(1);
             const finding = await harness.db.analysisFinding.findUniqueOrThrow({ where: { id: findingId } });
             expect(finding.issueId).toBeNull();
@@ -177,7 +177,6 @@ analysisSuite({
                 severity: "high",
                 actualBehavior: "misbehaves",
                 narrativeMarkdown: "narrative",
-                status: "resolved",
                 resolvedAt: new Date(),
                 resolutionNote: "was fixed once",
             });

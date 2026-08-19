@@ -1,5 +1,5 @@
 import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
-import type { ReporterIssueKind, ReporterIssueStatus } from "@autonoma/diffs/analysis";
+import type { ReporterIssueKind } from "@autonoma/diffs/analysis";
 import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { TestSuiteStore } from "@autonoma/test-suite";
 import { expect } from "vitest";
@@ -25,7 +25,7 @@ interface SeedIssueParams {
     /** How many earlier runs attributed the covered set to this issue: 2+ is a carried-forward issue. Defaults to 1. */
     carriedAcross?: number;
     kind?: ReporterIssueKind;
-    status?: ReporterIssueStatus;
+    resolved?: boolean;
 }
 
 class ReverifyHarness implements IntegrationHarness {
@@ -101,7 +101,7 @@ class ReverifyHarness implements IntegrationHarness {
             organizationId: branch.organizationId,
             title: params.title,
             kind: params.kind ?? "bug",
-            status: params.status ?? "open",
+            resolved: params.resolved === true,
             actualBehavior: `${params.title} misbehaves`,
             narrativeMarkdown: `${params.title} narrative`,
         });
@@ -209,7 +209,7 @@ integrationTestSuite({
             await harness.seedIssue(branch, {
                 title: "Checkout was fixed already",
                 coveredSlugs: ["checkout"],
-                status: "resolved",
+                resolved: true,
             });
             await harness.seedIssue(branch, {
                 title: "Preview environment is down",

@@ -8,9 +8,9 @@ const SEED_RESOLVED_AT = new Date("2026-01-01T00:00:00.000Z");
 export interface SeedAnalysisIssueInput {
     branchId: string;
     organizationId: string;
-    status?: string;
-    /** When set, the issue is resolved at this instant; defaults from `status: "resolved"` (the store reads
-     * `resolvedAt`, not `status`, so a resolved seed must carry one). */
+    /** Resolve the issue - the store reads `resolvedAt`'s presence, never a status. Closed at `resolvedAt` when
+     * given, else at a fixed default instant. */
+    resolved?: boolean;
     resolvedAt?: Date;
     title?: string;
     kind?: string;
@@ -29,13 +29,11 @@ export interface SeedAnalysisIssueInput {
  * version carrying the authored content, and the `currentVersion` pointer aimed at it. Returns the issue id.
  */
 export async function seedAnalysisIssue(db: PrismaClient, input: SeedAnalysisIssueInput): Promise<string> {
-    const status = input.status ?? "open";
-    const resolvedAt = input.resolvedAt ?? (status === "resolved" ? SEED_RESOLVED_AT : undefined);
+    const resolvedAt = input.resolvedAt ?? (input.resolved === true ? SEED_RESOLVED_AT : undefined);
     const issue = await db.analysisIssue.create({
         data: {
             branchId: input.branchId,
             organizationId: input.organizationId,
-            status,
             resolvedAt,
         },
     });

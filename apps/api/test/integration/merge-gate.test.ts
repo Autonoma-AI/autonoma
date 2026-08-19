@@ -907,7 +907,6 @@ apiTestSuite({
             await harness.db.analysisReport.create({
                 data: {
                     snapshotId: snapshot.id,
-                    verdict: "passed",
                     title: "Autonoma checked this PR",
                     headline: "The run found no client bugs.",
                     reportMarkdown: "## Run\n\nNo client bugs.",
@@ -1284,7 +1283,6 @@ async function createSnapshotWithBugs(
     await harness.db.analysisReport.create({
         data: {
             snapshotId: snapshot.id,
-            verdict: "client_bug",
             title: "Autonoma checked this PR",
             headline: "The run found client bugs.",
             reportMarkdown: "## Run\n\nClient bugs found.",

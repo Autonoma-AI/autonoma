@@ -156,20 +156,20 @@ export class AnalysisHarness implements IntegrationHarness {
         title?: string;
         kind?: string;
         severity?: string;
-        status?: string;
-        /** Explicit close time; otherwise derived from `status: "resolved"` (the store reads `resolvedAt`). */
+        /** Resolve the issue - the store reads `resolvedAt`'s presence, never a status. */
+        resolved?: boolean;
+        /** Explicit close time; otherwise a fixed default instant when `resolved`. */
         resolvedAt?: Date | null;
         resolutionNote?: string;
         actualBehavior?: string;
         narrativeMarkdown?: string;
         primaryTestCaseId?: string;
     }): Promise<{ id: string }> {
-        const resolvedAt = input.resolvedAt ?? (input.status === "resolved" ? SEED_RESOLVED_AT : undefined);
+        const resolvedAt = input.resolvedAt ?? (input.resolved === true ? SEED_RESOLVED_AT : undefined);
         const issue = await this.db.analysisIssue.create({
             data: {
                 branchId: input.branchId,
                 organizationId: input.organizationId,
-                status: input.status ?? "open",
                 resolvedAt: resolvedAt ?? undefined,
                 resolutionNote: input.resolutionNote ?? undefined,
             },

@@ -2499,30 +2499,13 @@ model AnalysisJob {
 /// The merged analysis pipeline's rich per-snapshot report, AUTHORED BY THE REPORTER once fan-out completes: the
 /// row's mere existence means the Reporter ran to completion (a Reporter failure fails the run, leaving no report).
 /// While the run is in flight it has only its AnalysisJob and the findings the Investigators persist. One row per
-/// run holds the run header (verdict, counts), the Impact Analysis selection reasoning, the coverage-plane summary,
-/// and the report prose. The run's per-test findings live in AnalysisFinding, keyed to the AnalysisJob (not here).
+/// run holds only the report prose the Reporter authored; the run's verdict, counts and coverage-plane summary are
+/// DERIVED on read from its findings, and the Impact Analysis reasoning lives on the AnalysisJob. The run's per-test
+/// findings live in AnalysisFinding, keyed to the AnalysisJob (not here).
 /// Only FKs OUTWARD (snapshot / org, cascade); nothing in the core app FKs into it.
 model AnalysisReport {
   snapshotId String         @id @map("snapshot_id")
   snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-
-  /// Retired: the app-health verdict is derived on read from the branch's open bug-kind issues, not stored. No
-  /// longer written; relaxed to nullable so the writer can omit it, and retained so a rollback to the previous
-  /// image meets a populated column. Its DROP rides #2036 one deploy later.
-  verdict String?
-
-  /// Retired: both are derived on read from `analysis_finding` (loadFindingCategories + summarizeVerdictPlanes),
-  /// no longer written. Retained for rollback safety; their DROP rides #2036 one deploy later.
-  testCount      Int @default(0) @map("test_count")
-  clientBugCount Int @default(0) @map("client_bug_count")
-
-  /// Retired: the coverage-confidence plane summary is derived on read from `analysis_finding`, no longer written.
-  /// Retained for rollback safety; its DROP rides #2036 one deploy later.
-  coverage Json?
-
-  /// Dead column: nothing writes or reads it. Superseded by `headline`, which the Reporter authors directly.
-  /// Retained so its DROP can land in its own migration one deploy after the readers were removed.
-  narration String?
 
   /// The Reporter's title for the PR as a whole (about eight words), leading the PR page and the GitHub comment.
   /// Authored for every outcome except an open bug, where the deterministic "Autonoma found N bugs in this PR"
@@ -2741,10 +2724,6 @@ model AnalysisIssue {
 
   branchId String @map("branch_id")
   branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
-
-  /// Retired: the lifecycle IS `resolvedAt`'s presence, which is what the store reads. Still written so a rollback
-  /// to the previous image meets a populated column; its DROP rides #2036 one deploy later.
-  status String @default("open")
 
   resolvedAt DateTime? @map("resolved_at")
 

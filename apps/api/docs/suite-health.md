@@ -58,9 +58,9 @@ Applied on top of the base, then clamped to 0-100. All are bounded so none can d
 | Modifier | Value | Source |
 |---|---|---|
 | Self-heal | `+8 x (saved / entered)`, only when `entered >= 5` | findings whose `currentClassification.number > 1`: `entered` = all of them, `saved` = those ending `passed` |
-| Triage | +5 if >=1 issue resolved in window, +10 if >=3 | `AnalysisIssue.status` open -> resolved |
+| Triage | +5 if >=1 issue resolved in window, +10 if >=3 | `AnalysisIssue.resolvedAt` set within the window (an issue's lifecycle IS its `resolvedAt`) |
 | Pipeline failure | -15 x (failed jobs / total jobs) | `AnalysisJob.status = 'failed'` in the window, **excluding supersessions** |
-| Staleness | -5 per open issue older than 7 days, cap -20 | `AnalysisIssue` where `status='open'` and `created_at < now() - 7d`, on a branch whose PR is still open |
+| Staleness | -5 per open issue older than 7 days, cap -20 | `AnalysisIssue` where `resolvedAt IS NULL` and `created_at < now() - 7d`, on a branch whose PR is still open |
 
 The pipeline-failure term exists because a run that dies produces no findings at all, so it is
 invisible to the trust rate. Without it, an app whose analysis fails outright 40% of the time looks

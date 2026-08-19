@@ -29,7 +29,7 @@ interface SeedIssueOptions {
     severity?: string;
     withSuspectedCause?: boolean;
     withPrimaryScreenshot?: boolean;
-    status?: string;
+    resolved?: boolean;
 }
 
 class CommentInputHarness implements IntegrationHarness {
@@ -75,12 +75,9 @@ class CommentInputHarness implements IntegrationHarness {
             data: {
                 snapshotId: newer,
                 organizationId: org.id,
-                verdict: "client_bug",
                 headline,
                 title: "Checkout broken on this PR",
                 reportMarkdown: "## Report\nCheckout is broken.",
-                clientBugCount: 1,
-                testCount: 2,
             },
         });
 
@@ -153,7 +150,7 @@ class CommentInputHarness implements IntegrationHarness {
             category: string;
             issueKind?: string;
             issueTitle?: string;
-            issueStatus?: string;
+            issueResolved?: boolean;
             issueSeverity?: string;
         },
     ): Promise<void> {
@@ -172,7 +169,7 @@ class CommentInputHarness implements IntegrationHarness {
                       title: options.issueTitle ?? `${options.slug} issue`,
                       kind: options.issueKind,
                       severity: options.issueSeverity ?? "high",
-                      status: options.issueStatus ?? "open",
+                      resolved: options.issueResolved === true,
                       actualBehavior: "The flow never ran.",
                       narrativeMarkdown: "narrative",
                   });
@@ -212,7 +209,7 @@ class CommentInputHarness implements IntegrationHarness {
             title: "Place order never enables",
             kind: "bug",
             severity: options.severity ?? "critical",
-            status: options.status ?? "open",
+            resolved: options.resolved === true,
             actualBehavior: "The button stayed disabled.",
             narrativeMarkdown: "narrative",
             primaryTestCaseId: primaryTestCase.id,
@@ -301,7 +298,7 @@ integrationTestSuite({
 
         test("cards only OPEN bug issues, so a resolved one leaves the comment", async ({ harness }) => {
             const branch = await harness.seedBranch();
-            await harness.seedIssue(branch, { status: "resolved" });
+            await harness.seedIssue(branch, { resolved: true });
 
             const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
@@ -364,7 +361,7 @@ integrationTestSuite({
                 slug: "invoices",
                 category: "environment_failure",
                 issueKind: "environment",
-                issueStatus: "resolved",
+                issueResolved: true,
             });
 
             const loaded = await loadAnalysisCommentInput(branch.snapshotId);

@@ -1,13 +1,12 @@
 import { ApplicationArchitecture } from "@autonoma/db";
-import { countAnalysisFindingBuckets } from "@autonoma/types";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
 import { seedAnalysisFindings } from "../seed-analysis-findings";
 
 /**
- * The checkpoint-history rail (branches.snapshotHistory) must read an authoritative snapshot's badge from the
- * AnalysisReport verdict + finding categories, not the legacy health/Bug model the merged pipeline never
+ * The checkpoint-history rail (branches.snapshotHistory) must read an authoritative snapshot's badge from the run's
+ * finding categories and the branch's open bug issues, not the legacy health/Bug model the merged pipeline never
  * populates. A snapshot with no analysis job carries no analysis summary at all.
  */
 
@@ -30,29 +29,18 @@ async function createSnapshot(harness: APITestHarness, branchId: string, headSha
     return snapshot.id;
 }
 
-async function attachAnalysisReport(
-    harness: APITestHarness,
-    snapshotId: string,
-    verdict: string,
-    categories: string[],
-): Promise<void> {
+async function attachAnalysisReport(harness: APITestHarness, snapshotId: string, categories: string[]): Promise<void> {
     await harness.db.analysisJob.create({
         data: { snapshotId, status: "completed", organizationId: harness.organizationId },
     });
-    // The badge reads its counts straight off the report, as the real Reporter writes them: the coverage-plane
-    // total and the test count, plus the issue-derived bug count (not the client_bug finding tally, so a bug
-    // carried across snapshots keeps the PR red even when no test re-ran it).
-    const buckets = countAnalysisFindingBuckets(categories);
+    // The badge derives its counts from the findings below (the coverage-plane total and the test count) plus the
+    // branch's open bug issues - not from the report, which now holds only the Reporter's authored prose.
     await harness.db.analysisReport.create({
         data: {
             snapshotId,
-            verdict,
-            clientBugCount: categories.filter((category) => category === "client_bug").length,
-            testCount: categories.length,
-            coverage: { total: buckets.coverage, byCategory: [] },
             title: "Autonoma checked this PR",
-            headline: `Run verdict: ${verdict}.`,
-            reportMarkdown: `## Run\n\nVerdict: ${verdict}.`,
+            headline: "The run's authored headline.",
+            reportMarkdown: "## Run\n\nWhat it found.",
             organizationId: harness.organizationId,
         },
     });
@@ -78,12 +66,7 @@ apiTestSuite({
             const { branchId } = await createBranch(harness);
             const snapshotId = await createSnapshot(harness, branchId, "head-bug");
             // One client bug, two passed, one coverage-plane finding.
-            await attachAnalysisReport(harness, snapshotId, "client_bug", [
-                "client_bug",
-                "passed",
-                "passed",
-                "engine_artifact",
-            ]);
+            await attachAnalysisReport(harness, snapshotId, ["client_bug", "passed", "passed", "engine_artifact"]);
 
             const history = await harness.request().branches.snapshotHistory({ branchId });
             const row = history.find((s) => s.id === snapshotId);
@@ -106,7 +89,7 @@ apiTestSuite({
             // No client bugs, but a coverage gap means the change was not fully confirmed - "no bug" is not
             // "verified". Stated as a ratio in a neutral tone rather than an amber alarm, since only a bug is raised
             // as a problem; it still does not block (health is `unknown`, never `critical`).
-            await attachAnalysisReport(harness, snapshotId, "passed", ["passed", "passed", "scenario_issue"]);
+            await attachAnalysisReport(harness, snapshotId, ["passed", "passed", "scenario_issue"]);
 
             const history = await harness.request().branches.snapshotHistory({ branchId });
             const row = history.find((s) => s.id === snapshotId);
@@ -118,7 +101,7 @@ apiTestSuite({
             expect(row?.health).toBe("unknown");
         });
 
-        test("reads a run that confirmed nothing as a zero ratio from the report, even with no surviving findings", async ({
+        test("reads a run that confirmed nothing as a zero ratio, even when every finding is a coverage gap", async ({
             harness,
         }) => {
             const { branchId } = await createBranch(harness);
@@ -132,7 +115,6 @@ apiTestSuite({
             await harness.db.analysisReport.create({
                 data: {
                     snapshotId,
-                    verdict: "passed",
                     title: "Autonoma checked this PR",
                     headline: "All seven checks were blocked before the app was exercised.",
                     reportMarkdown: "## Run\n\nBlocked.",

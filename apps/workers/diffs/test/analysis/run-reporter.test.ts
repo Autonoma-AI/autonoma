@@ -237,7 +237,7 @@ integrationTestSuite({
             });
             expect(issues).toHaveLength(1);
             expect(issues[0]?.currentVersion?.kind).toBe("bug");
-            expect(issues[0]?.status).toBe("open");
+            expect(issues[0]?.resolvedAt).toBeNull();
             const issueId = issues[0]?.id ?? "";
             expect(await harness.coveredSlugs(issueId)).toEqual(new Set(["checkout"]));
 
@@ -285,7 +285,7 @@ integrationTestSuite({
             // Simulate a previously resolved regression to prove carry-forward reopens it.
             await harness.db.analysisIssue.update({
                 where: { id: existingId },
-                data: { status: "resolved", resolvedAt: new Date() },
+                data: { resolvedAt: new Date() },
             });
 
             const carry: ReporterIssueResult = {
@@ -530,7 +530,7 @@ integrationTestSuite({
             expect(result).toEqual({ persisted: false, reason: "superseded" });
             expect(await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } })).toBeNull();
             const existing = await harness.db.analysisIssue.findUniqueOrThrow({ where: { id: existingId } });
-            expect(existing.status).toBe("open");
+            expect(existing.resolvedAt).toBeNull();
             expect(await harness.db.analysisIssue.count({ where: { branchId: run.branchId } })).toBe(1);
             const finding = await harness.findingFor(run, "login");
             expect(finding.issueId).toBeNull();

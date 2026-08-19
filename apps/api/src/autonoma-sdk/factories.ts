@@ -87,10 +87,6 @@ const JsonDocument = z.record(z.string(), z.json());
  */
 const EvidenceManifest = z.array(evidenceManifestEntrySchema);
 const AnalysisFlows = z.array(analysisFlowSchema);
-const AnalysisCoverage = z.object({
-    total: z.number(),
-    byCategory: z.array(z.object({ category: z.string(), count: z.number() })),
-});
 
 /**
  * Zod views of the Prisma enums these factories write, derived from the generated enum objects
@@ -1264,13 +1260,9 @@ const AnalysisJobFactory = defineFactory({
 const AnalysisReportInput = loose({
     snapshotId: z.string(),
     organizationId: z.string(),
-    verdict: z.string().optional(),
-    testCount: z.number().optional(),
-    clientBugCount: z.number().optional(),
     title: z.string().optional(),
     headline: z.string().optional(),
     reportMarkdown: z.string().optional(),
-    coverage: AnalysisCoverage.optional(),
     flows: AnalysisFlows.optional(),
     evidenceManifest: EvidenceManifest.optional(),
 });
@@ -1283,13 +1275,9 @@ const AnalysisReportFactory = defineFactory({
             data: {
                 snapshotId: data.snapshotId,
                 organizationId: data.organizationId,
-                verdict: data.verdict ?? "passed",
-                testCount: data.testCount ?? 0,
-                clientBugCount: data.clientBugCount ?? 0,
                 title: data.title ?? "Seeded report for a test tenant",
                 headline: data.headline ?? "Seeded by the Autonoma SDK test-data endpoint.",
                 reportMarkdown: data.reportMarkdown ?? "## Seeded report\n\nNo real analysis ran for this tenant.",
-                coverage: data.coverage ?? undefined,
                 flows: data.flows ?? undefined,
                 evidenceManifest: data.evidenceManifest ?? undefined,
             },
@@ -1307,7 +1295,6 @@ const AnalysisIssueInput = loose({
     title: z.string().optional(),
     kind: z.string().optional(),
     severity: z.string().optional(),
-    status: z.string().optional(),
     expectedBehavior: z.string().optional(),
     actualBehavior: z.string().optional(),
     narrativeMarkdown: z.string().optional(),
@@ -1328,7 +1315,6 @@ const AnalysisIssueFactory = defineFactory({
                 id: data.id ?? undefined,
                 branchId: data.branchId,
                 organizationId: data.organizationId,
-                status: data.status ?? "open",
             },
         });
         const version = await db.analysisIssueVersion.create({

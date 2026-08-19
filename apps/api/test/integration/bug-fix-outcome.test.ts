@@ -55,7 +55,7 @@ apiTestSuite({
             const fixture = await createRepoApp(harness, "bfo-fixed");
             const branchId = await createTrackedPr(harness, fixture, { withCompletedRun: true });
             const issueId = await addBugIssue(harness, branchId, {
-                status: "resolved",
+                resolved: true,
                 severity: "high",
                 resolvedAt: new Date("2026-07-20T00:00:00Z"),
             });
@@ -89,7 +89,7 @@ apiTestSuite({
             const service = new BugFixOutcomeService(harness.db, analytics, true);
             const fixture = await createRepoApp(harness, "bfo-open");
             const branchId = await createTrackedPr(harness, fixture, { withCompletedRun: true });
-            const issueId = await addBugIssue(harness, branchId, { status: "open", severity: "critical" });
+            const issueId = await addBugIssue(harness, branchId, { severity: "critical" });
 
             await service.recordBugFixOutcomes(mergeParams(harness, fixture));
 
@@ -112,13 +112,13 @@ apiTestSuite({
             const fixture = await createRepoApp(harness, "bfo-mix");
             const branchId = await createTrackedPr(harness, fixture, { withCompletedRun: true });
             const fixedId = await addBugIssue(harness, branchId, {
-                status: "resolved",
+                resolved: true,
                 severity: "medium",
                 resolvedAt: new Date("2026-07-20T00:00:00Z"),
             });
-            const openId = await addBugIssue(harness, branchId, { status: "open", severity: "low" });
+            const openId = await addBugIssue(harness, branchId, { severity: "low" });
             // An environment issue is not a bug - it must be ignored entirely.
-            await addIssue(harness, branchId, { kind: "environment", status: "open", severity: "high" });
+            await addIssue(harness, branchId, { kind: "environment", severity: "high" });
 
             await service.recordBugFixOutcomes(mergeParams(harness, fixture));
 
@@ -137,9 +137,9 @@ apiTestSuite({
             const service = new BugFixOutcomeService(harness.db, analytics, true);
             const fixture = await createRepoApp(harness, "bfo-skip");
             const branchId = await createTrackedPr(harness, fixture, { withCompletedRun: true });
-            await addBugIssue(harness, branchId, { status: "open", severity: "high" });
+            await addBugIssue(harness, branchId, { severity: "high" });
             await addBugIssue(harness, branchId, {
-                status: "resolved",
+                resolved: true,
                 severity: "low",
                 resolvedAt: new Date("2026-07-20T00:00:00Z"),
             });
@@ -202,7 +202,7 @@ apiTestSuite({
             const fixture = await createRepoApp(harness, "bfo-redeliver");
             const branchId = await createTrackedPr(harness, fixture, { withCompletedRun: true });
             await addBugIssue(harness, branchId, {
-                status: "resolved",
+                resolved: true,
                 severity: "high",
                 resolvedAt: new Date("2026-07-20T00:00:00Z"),
             });
@@ -218,7 +218,7 @@ apiTestSuite({
             const analytics = new RecordingAnalytics();
             const fixture = await createRepoApp(harness, "bfo-gate");
             const branchId = await createTrackedPr(harness, fixture, { withCompletedRun: true });
-            await addBugIssue(harness, branchId, { status: "open", severity: "high" });
+            await addBugIssue(harness, branchId, { severity: "high" });
 
             // Merged but the org has not enabled the gate: nothing recorded.
             await setGate(harness, { analysisEnabled: true, mergeGateEnabled: false });
@@ -244,7 +244,7 @@ apiTestSuite({
             const service = new BugFixOutcomeService(harness.db, analytics, true, contributor);
             const fixture = await createRepoApp(harness, "bfo-attrib");
             const branchId = await createTrackedPr(harness, fixture, { withCompletedRun: true });
-            await addBugIssue(harness, branchId, { status: "resolved", severity: "high", resolvedAt: RESOLVED_AT });
+            await addBugIssue(harness, branchId, { resolved: true, severity: "high", resolvedAt: RESOLVED_AT });
 
             await service.recordBugFixOutcomes(mergeParams(harness, fixture));
 
@@ -263,7 +263,7 @@ apiTestSuite({
             const fixture = await createRepoApp(harness, "bfo-skip-superseded");
             const branchId = await createTrackedPr(harness, fixture, { withCompletedRun: true });
             const issueId = await addBugIssue(harness, branchId, {
-                status: "resolved",
+                resolved: true,
                 severity: "high",
                 resolvedAt: RESOLVED_AT,
             });
@@ -307,7 +307,7 @@ apiTestSuite({
                     createdAt: new Date("2026-07-20T12:00:00Z"),
                 },
             });
-            await addBugIssue(harness, branchId, { status: "resolved", severity: "high", resolvedAt: RESOLVED_AT });
+            await addBugIssue(harness, branchId, { resolved: true, severity: "high", resolvedAt: RESOLVED_AT });
 
             await service.recordBugFixOutcomes(mergeParams(harness, fixture));
 
@@ -333,7 +333,7 @@ apiTestSuite({
                     createdAt: new Date("2026-07-25T00:00:00Z"),
                 },
             });
-            await addBugIssue(harness, branchId, { status: "resolved", severity: "high", resolvedAt: RESOLVED_AT });
+            await addBugIssue(harness, branchId, { resolved: true, severity: "high", resolvedAt: RESOLVED_AT });
 
             await service.recordBugFixOutcomes(mergeParams(harness, fixture));
 
@@ -415,7 +415,6 @@ async function createTrackedPr(
         await harness.db.analysisReport.create({
             data: {
                 snapshotId: snapshot.id,
-                verdict: "passed",
                 title: "Autonoma checked this PR",
                 headline: "Run complete.",
                 reportMarkdown: "## Run",
@@ -429,7 +428,7 @@ async function createTrackedPr(
 async function addBugIssue(
     harness: APITestHarness,
     branchId: string,
-    opts: { status: string; severity: string; resolvedAt?: Date },
+    opts: { resolved?: boolean; severity: string; resolvedAt?: Date },
 ): Promise<string> {
     return addIssue(harness, branchId, { kind: "bug", ...opts });
 }
@@ -437,7 +436,7 @@ async function addBugIssue(
 async function addIssue(
     harness: APITestHarness,
     branchId: string,
-    opts: { kind: string; status: string; severity: string; resolvedAt?: Date },
+    opts: { kind: string; resolved?: boolean; severity: string; resolvedAt?: Date },
 ): Promise<string> {
     return await seedAnalysisIssue(harness.db, {
         branchId,
@@ -445,7 +444,7 @@ async function addIssue(
         title: `${opts.kind} issue`,
         kind: opts.kind,
         severity: opts.severity,
-        status: opts.status,
+        resolved: opts.resolved,
         resolvedAt: opts.resolvedAt,
         actualBehavior: "It did the wrong thing.",
         narrativeMarkdown: "The narrative.",

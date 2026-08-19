@@ -5,7 +5,7 @@ import { unresolvedLabel } from "./outcome-vocab";
 // history (PR list + PR detail) - e.g. "2 failed · 1 passed". Keys off the
 // server-computed summary so the copy matches the badge instead of re-deriving from
 // raw health counts. An authoritative snapshot (summary.analysis set) reads its counts
-// from the AnalysisReport verdict buckets, not the legacy health model. fallbackTotalTests
+// from the run's finding buckets (analysisFindingBucket), not the legacy health model. fallbackTotalTests
 // is used only when summary is undefined (health not yet computed).
 export function formatCheckpointMetrics(
     summary: CheckpointPresentationSummary | undefined,

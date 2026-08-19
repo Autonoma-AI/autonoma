@@ -49,7 +49,7 @@ async function createAnalysisRun(harness: APITestHarness, snapshotId: string): P
 async function createIssue(
     harness: APITestHarness,
     branchId: string,
-    issue: { title: string; kind: string; severity: string; status?: string; actualBehavior?: string },
+    issue: { title: string; kind: string; severity: string; resolved?: boolean; actualBehavior?: string },
 ): Promise<string> {
     return await seedAnalysisIssue(harness.db, {
         branchId,
@@ -57,7 +57,7 @@ async function createIssue(
         title: issue.title,
         kind: issue.kind,
         severity: issue.severity,
-        status: issue.status ?? "open",
+        resolved: issue.resolved,
         actualBehavior: issue.actualBehavior ?? `${issue.title} - what happened.`,
         narrativeMarkdown: `## ${issue.title}`,
     });
@@ -84,7 +84,7 @@ apiTestSuite({
                 title: "Already resolved",
                 kind: "bug",
                 severity: "critical",
-                status: "resolved",
+                resolved: true,
             });
 
             const problems = await harness.request().branches.mainOpenProblems({ applicationId: app.applicationId });

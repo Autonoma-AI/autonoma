@@ -577,9 +577,9 @@ export type CoverageCategoryCount = z.infer<typeof coverageCategoryCountSchema>;
 
 /**
  * The coverage-confidence plane of a run, summarized: `byCategory` counts the findings per coverage category (one
- * per test) plus the plane total. This is the shape `summarizeVerdictPlanes`
- * derives, persists onto `AnalysisReport.coverage` (a JSON blob), and the PR comment / UI read back - so it lives
- * here as the single source of truth, validated at the read boundary.
+ * per test) plus the plane total. This is the shape `summarizeVerdictPlanes` derives from a run's findings and the
+ * PR comment / UI read - computed on read, never stored - so it lives here as the single source of truth,
+ * validated at the read boundary.
  */
 export const coverageSummarySchema = z.object({
     byCategory: z.array(coverageCategoryCountSchema),

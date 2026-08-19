@@ -85,7 +85,6 @@ class CrossSurfaceHarness implements IntegrationHarness {
                 title,
                 kind: "bug",
                 severity: "critical",
-                status: "open",
                 actualBehavior: "It misbehaves.",
                 narrativeMarkdown: "narrative",
             });
@@ -111,7 +110,6 @@ class CrossSurfaceHarness implements IntegrationHarness {
             data: {
                 snapshotId: snapshot.id,
                 organizationId: org.id,
-                verdict: "passed",
                 title: "The run",
                 headline: "A headline.",
                 reportMarkdown: "## Report",
@@ -240,7 +238,7 @@ integrationTestSuite({
             // The ledger moved on: both surfaces read it live rather than trusting the frozen count.
             await harness.db.analysisIssue.updateMany({
                 where: { branchId: run.branchId },
-                data: { status: "resolved", resolvedAt: new Date() },
+                data: { resolvedAt: new Date() },
             });
 
             const [gate, comment] = await Promise.all([

@@ -220,7 +220,6 @@ async function seedSettledAnalysis(harness: APITestHarness, snapshotId: string) 
         data: {
             snapshotId,
             organizationId: harness.organizationId,
-            verdict: "client_bug",
             title: "Autonoma found a bug",
             headline: "One bug.",
             reportMarkdown: "## Report",

@@ -88,7 +88,7 @@ apiTestSuite({
                 { slug: "clean-cart", category: "passed" },
                 { slug: "clean-login", category: "passed" },
             ]);
-            await createReport(harness, snapshotId, { verdict: "passed" });
+            await createReport(harness, snapshotId);
 
             const analysis = await harness.services.branches.getAnalysisForPr(
                 application.id,
@@ -112,7 +112,7 @@ apiTestSuite({
                 headSha: "sha-issues",
                 impactReasoning: "Selected the checkout tests because the PR touches the cart.",
             });
-            await createReport(harness, snapshotId, { verdict: "client_bug" });
+            await createReport(harness, snapshotId);
             const findingFor = await seedAnalysisFindings(harness.db, snapshotId, [
                 {
                     slug: "checkout-submit",
@@ -212,7 +212,7 @@ apiTestSuite({
         }) => {
             const { branchId, prNumber } = await createPrBranch(harness, application.id, 7006);
             const first = await createRun(harness, branchId, { headSha: "sha-first" });
-            await createReport(harness, first.snapshotId, { verdict: "client_bug" });
+            await createReport(harness, first.snapshotId);
             await createIssue(harness, branchId, {
                 title: "Still open from the last run",
                 kind: "bug",
@@ -245,7 +245,7 @@ apiTestSuite({
         }) => {
             const { branchId, prNumber } = await createPrBranch(harness, application.id, 7010);
             const first = await createRun(harness, branchId, { headSha: "sha-reported" });
-            await createReport(harness, first.snapshotId, { verdict: "client_bug" });
+            await createReport(harness, first.snapshotId);
             await createIssue(harness, branchId, {
                 title: "Open from the reported run",
                 kind: "bug",
@@ -283,7 +283,7 @@ apiTestSuite({
         }) => {
             const { branchId, prNumber } = await createPrBranch(harness, application.id, 7007);
             const { snapshotId } = await createRun(harness, branchId, { headSha: "sha-malformed" });
-            await createReport(harness, snapshotId, { verdict: "client_bug" });
+            await createReport(harness, snapshotId);
             await createIssue(harness, branchId, {
                 title: "Unreadable severity",
                 kind: "bug",
@@ -311,7 +311,7 @@ apiTestSuite({
         test("does not serve a PR to another organization", async ({ harness, seedResult: { application } }) => {
             const { branchId, prNumber } = await createPrBranch(harness, application.id, 7008);
             const { snapshotId } = await createRun(harness, branchId, { headSha: "sha-scoped" });
-            await createReport(harness, snapshotId, { verdict: "client_bug" });
+            await createReport(harness, snapshotId);
 
             const analysis = await harness.services.branches.getAnalysisForPr(
                 application.id,
@@ -332,7 +332,7 @@ apiTestSuite({
                 headSha: "sha-newer",
                 createdAt: new Date(Date.now() + 60_000),
             });
-            await createReport(harness, newer.snapshotId, { verdict: "client_bug" });
+            await createReport(harness, newer.snapshotId);
             await seedAnalysisFindings(harness.db, older.snapshotId, [{ slug: "recurring", category: "client_bug" }]);
             const findingFor = await seedAnalysisFindings(harness.db, newer.snapshotId, [
                 { slug: "recurring", category: "client_bug" },
@@ -372,7 +372,7 @@ apiTestSuite({
                 { slug: "agree-passed", category: "passed" },
                 { slug: "agree-gap", category: "engine_artifact" },
             ]);
-            await createReport(harness, snapshotId, { verdict: "client_bug" });
+            await createReport(harness, snapshotId);
             await createIssue(harness, branchId, {
                 title: "Order total regression",
                 kind: "bug",
@@ -461,15 +461,10 @@ async function createRun(
     return { snapshotId: snapshot.id };
 }
 
-async function createReport(
-    harness: APITestHarness,
-    snapshotId: string,
-    { verdict }: { verdict: string },
-): Promise<void> {
+async function createReport(harness: APITestHarness, snapshotId: string): Promise<void> {
     await harness.db.analysisReport.create({
         data: {
             snapshotId,
-            verdict,
             title: "Autonoma checked this PR",
             headline: "One paragraph about the run.",
             reportMarkdown: "## The run\n\nWhat it found.",
@@ -513,7 +508,6 @@ async function createIssue(
         title,
         kind,
         severity,
-        status: "open",
         actualBehavior,
         expectedBehavior,
         narrativeMarkdown: `## ${title}\n\n${actualBehavior}`,

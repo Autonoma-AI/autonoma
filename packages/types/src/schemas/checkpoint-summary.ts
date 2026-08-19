@@ -29,8 +29,9 @@ export const checkpointTestCountsSchema = z.object({
 export type CheckpointTestCounts = z.infer<typeof checkpointTestCountsSchema>;
 
 // The authoritative-analysis view of a checkpoint, present only when the merged pipeline ran on the snapshot (it
-// has an AnalysisJob). When set, tone/label/reason are derived from the AnalysisReport verdict + finding
-// categories rather than the legacy health/Bug model, and the counts below drive the authoritative metrics line.
+// has an AnalysisJob). When set, tone/label/reason are derived from the run's finding categories and the branch's
+// open bug-kind issues (the verdict, computed on read) rather than the legacy health/Bug model, and the counts
+// below drive the authoritative metrics line.
 // The three counts are the presentation buckets of the run's findings (see analysisFindingBucket).
 export const checkpointAnalysisSummarySchema = z.object({
     // The AnalysisJob lifecycle. Mirrors the `AnalysisJobStatus` db enum (types cannot import it).

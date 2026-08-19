@@ -7,7 +7,7 @@ import { seedAnalysisFindings } from "../seed-analysis-findings";
 apiTestSuite({
     name: "branches.analysisReport",
     cases: (test) => {
-        test("returns the report header, narration, and findings ordered by display order", async ({ harness }) => {
+        test("returns the report header and findings ordered by display order", async ({ harness }) => {
             const { snapshotId } = await createAuthoritativeSnapshot(harness, {
                 impactReasoning: "Selected the checkout tests because the PR touches the cart.",
             });
@@ -15,10 +15,7 @@ apiTestSuite({
             await harness.db.analysisReport.create({
                 data: {
                     snapshotId,
-                    verdict: "client_bug",
                     title: "Autonoma checked this PR",
-                    testCount: 2,
-                    clientBugCount: 1,
                     headline: "The checkout flow has a client bug: the submit button never enables.",
                     reportMarkdown: "## Checkout is broken\nThe submit button never enables.",
                     organizationId: harness.organizationId,
@@ -66,9 +63,7 @@ apiTestSuite({
             await harness.db.analysisReport.create({
                 data: {
                     snapshotId,
-                    verdict: "passed",
                     title: "Autonoma checked this PR",
-                    testCount: 1,
                     headline: "The rewritten test passes.",
                     reportMarkdown: "## Run\n\nThe rewritten test passes.",
                     organizationId: harness.organizationId,

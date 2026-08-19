@@ -39,7 +39,6 @@ analysisSuite({
                 title: "Bug with corrupt severity",
                 kind: "bug",
                 severity: "URGENT",
-                status: "open",
                 actualBehavior: "misbehaves",
                 narrativeMarkdown: "narrative",
             });
@@ -62,7 +61,6 @@ analysisSuite({
                 title: "Cross-snapshot bug",
                 kind: "bug",
                 severity: "high",
-                status: "open",
                 actualBehavior: "misbehaves",
                 narrativeMarkdown: "narrative",
             });
@@ -93,7 +91,6 @@ analysisSuite({
                     {
                         snapshotId: run.snapshotId,
                         organizationId: run.organizationId,
-                        verdict: "passed",
                         title: "The run",
                         headline: "own",
                         flows: [],
@@ -102,7 +99,6 @@ analysisSuite({
                     {
                         snapshotId: priorId,
                         organizationId: run.organizationId,
-                        verdict: "passed",
                         title: "The run",
                         headline: "prior",
                         flows: [],
@@ -111,7 +107,6 @@ analysisSuite({
                     {
                         snapshotId: emptyId,
                         organizationId: run.organizationId,
-                        verdict: "passed",
                         title: "The run",
                         headline: "",
                         flows: [],
