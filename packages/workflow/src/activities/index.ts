@@ -52,6 +52,7 @@ export type {
     PostAnalyzingPrCommentOutput,
     RunImpactAnalysisInput,
     RunImpactAnalysisOutput,
+    ListInvestigationTargetsInput,
     RunReporterInput,
     RunReporterOutput,
     ReporterPersisted,

@@ -23,7 +23,12 @@ let notifyImpactStarted: () => void;
 
 const activities: Pick<
     AnalysisActivities,
-    "openAnalysisRun" | "openMergeGate" | "runImpactAnalysis" | "runReporter" | "settleAnalysisRun"
+    | "openAnalysisRun"
+    | "openMergeGate"
+    | "runImpactAnalysis"
+    | "listInvestigationTargets"
+    | "runReporter"
+    | "settleAnalysisRun"
 > = {
     async openAnalysisRun() {
         return { skipped: false, snapshotId };
@@ -41,7 +46,10 @@ const activities: Pick<
                 });
             });
         }
-        return { targets: [], reasoning: "No affected tests" };
+        return { targetCount: 0 };
+    },
+    async listInvestigationTargets() {
+        return [];
     },
     async runReporter() {
         return {

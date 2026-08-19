@@ -182,13 +182,14 @@ async function uploadReporterInput(snapshotId: string, input: ReporterInput, log
 
 /** Assemble the Reporter's input from the run's persisted findings + the branch's issue/report history + deps. */
 async function buildReporterInput(input: RunReporterInput, context: SnapshotContext): Promise<ReporterInput> {
-    const { snapshotId, impactReasoning } = input;
+    const { snapshotId } = input;
     const logger = rootLogger.child({ name: "buildReporterInput" });
     const store = getAnalysisStore();
     const ledger = store.forBranch(context.branchId);
-    const [target, findings, branchTests, existingIssues, priorReports, scenario] = await Promise.all([
+    const [target, findings, lifecycle, branchTests, existingIssues, priorReports, scenario] = await Promise.all([
         resolveRunTarget(context),
         store.forAnalysis(snapshotId).findings(),
+        store.forAnalysis(snapshotId).lifecycle(),
         loadBranchTests(context.branchId, snapshotId, logger),
         ledger.issues(),
         ledger.priorReports({ excludeSnapshotId: snapshotId, limit: PRIOR_REPORTS_LIMIT }),
@@ -199,7 +200,7 @@ async function buildReporterInput(input: RunReporterInput, context: SnapshotCont
         appSlug: context.appSlug,
         target,
         range: { baseSha: context.baseSha, headSha: context.headSha },
-        impactReasoning,
+        impactReasoning: lifecycle?.impactReasoning,
         findings: toReporterFindings(findings),
         branchTests,
         existingIssues: existingIssues.map(toReporterExistingIssue),

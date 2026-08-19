@@ -21,6 +21,7 @@ export {
 } from "./queries/read-findings";
 export { type FindingDetailClassification, type FindingDetailRecord } from "./queries/read-finding-detail";
 export { type SettledReport } from "./queries/read-report";
+export { type SelectionTarget } from "./queries/read-selection";
 export { type PriorRun, type PriorRunsHistory, type PriorRunsQuery } from "./queries/prior-runs";
 export { BranchLedger, type CoveredIssue, type IssueFilter, type PriorReport } from "./branch-ledger";
 export { type CoveredFinding, type Issue } from "./queries/read-issues";

@@ -196,7 +196,12 @@ function untilCancelled(): Promise<never> {
 
 const analysisActivities: Pick<
     AnalysisActivities,
-    "openAnalysisRun" | "openMergeGate" | "runImpactAnalysis" | "runReporter" | "settleAnalysisRun"
+    | "openAnalysisRun"
+    | "openMergeGate"
+    | "runImpactAnalysis"
+    | "listInvestigationTargets"
+    | "runReporter"
+    | "settleAnalysisRun"
 > = {
     async openAnalysisRun() {
         harness.events.push("snapshot");
@@ -214,7 +219,10 @@ const analysisActivities: Pick<
         if (harness.impactBlocksUntilCancelled) await untilCancelled();
         if (harness.impactWaitsForBuild) await requireConcurrent(harness.buildLaunched);
         harness.events.push("impact:end");
-        return { targets: harness.targets, reasoning: "scripted" };
+        return { targetCount: harness.targets.length };
+    },
+    async listInvestigationTargets() {
+        return harness.targets;
     },
     async runReporter() {
         harness.reporterRuns += 1;

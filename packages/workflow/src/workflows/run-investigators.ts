@@ -18,20 +18,23 @@ const investigator = proxyActivities<Pick<AnalysisActivities, "recordAnalysisCon
     taskQueue: TaskQueue.DIFFS,
 });
 
+// A fast, idempotent read of the run's selection - safe to retry.
+const reads = proxyActivities<Pick<AnalysisActivities, "listInvestigationTargets">>({
+    startToCloseTimeout: "1m",
+    retry: { maximumAttempts: 3 },
+    taskQueue: TaskQueue.DIFFS,
+});
+
 /**
- * Fan out one Investigator child workflow per target, in bounded waves - the single choke point that holds the
- * ceiling on concurrent browsers / scenario provisions. Every target yields exactly one persisted finding: the
- * Investigator persists its own, and a child that crashed or timed out is contained here as an engine_artifact
- * finding the caller persists (see {@link runInvestigator}), so no target is ever silently dropped.
- *
- * Shared by every parent that owns an analysis run - the analysis workflow for a customer-deployed preview and the
- * previewkit orchestrator for a preview we build ourselves - so the two can never drift on containment or
- * concurrency.
+ * Fan out one Investigator child workflow per selected target, in bounded waves - the single choke point that holds
+ * the ceiling on concurrent browsers / scenario provisions. The targets are read from the run's own selection
+ * (findings), not passed in, so the impact stage and the fan-out share no workflow payload. Every target yields
+ * exactly one persisted finding: the Investigator persists its own, and a child that crashed or timed out is
+ * contained here as an engine_artifact finding the caller persists (see {@link runInvestigator}), so no target is
+ * ever silently dropped.
  */
-export async function runInvestigators(
-    snapshotId: string,
-    targets: AnalysisInvestigationTarget[],
-): Promise<AnalysisCandidateFinding[]> {
+export async function runInvestigators(snapshotId: string): Promise<AnalysisCandidateFinding[]> {
+    const targets = await reads.listInvestigationTargets({ snapshotId });
     const candidates: AnalysisCandidateFinding[] = [];
     for (let offset = 0; offset < targets.length; offset += INVESTIGATOR_CONCURRENCY) {
         const wave = targets.slice(offset, offset + INVESTIGATOR_CONCURRENCY);

@@ -127,16 +127,17 @@ export async function analysisRunWorkflow(input: AnalysisRunWorkflowInput): Prom
         await announcePrComment(snapshotId, true);
 
         // Reaching a selection may involve building the preview the Investigators run against - or deciding not to.
-        const impact =
-            target != null
-                ? await impactWithPreview({ target, branchId, snapshotId, eager })
-                : await runImpactAnalysis(snapshotId, runScopedIds);
+        if (target != null) {
+            await impactWithPreview({ target, branchId, snapshotId, eager });
+        } else {
+            await runImpactAnalysis(snapshotId, runScopedIds);
+        }
 
         // Reflect the resolved preview (ready, or none needed) before the long investigation begins.
         await announcePrComment(snapshotId, false);
 
-        // An unwarranted build leaves `targets` empty, so the fan-out is a no-op.
-        await runAnalysisStages(snapshotId, impact, runScopedIds);
+        // The fan-out and Reporter re-read the selection + reasoning from the DB; an empty selection is a no-op.
+        await runAnalysisStages(snapshotId, runScopedIds);
     });
 }
 
@@ -158,7 +159,7 @@ function snapshotIds(target: PreviewDeployTarget, snapshotId: string): Observabi
 /** Nothing to build, so the selection IS the run's work. */
 async function runImpactAnalysis(snapshotId: string, ids: ObservabilityContext): Promise<RunImpactAnalysisOutput> {
     const impact = await analysis.runImpactAnalysis({ snapshotId });
-    log.info("Impact Analysis complete", { ...ids, extra: { targetCount: impact.targets.length } });
+    log.info("Impact Analysis complete", { ...ids, extra: { targetCount: impact.targetCount } });
     return impact;
 }
 
@@ -295,7 +296,7 @@ async function buildIfWarranted(params: {
 }): Promise<RunImpactAnalysisOutput> {
     const { target, branchId, snapshotId } = params;
     const impact = await impactAnalysisForWarrant({ target, branchId, snapshotId });
-    const targetCount = impact.targets.length;
+    const targetCount = impact.targetCount;
     const reason = warrantFromSelection(targetCount);
 
     if (!warrantsBuild(reason)) {
@@ -323,7 +324,7 @@ async function impactAnalysisForWarrant(params: {
         const impact = await analysis.runImpactAnalysis({ snapshotId });
         log.info("Impact Analysis complete", {
             ...snapshotIds(target, snapshotId),
-            extra: { targetCount: impact.targets.length },
+            extra: { targetCount: impact.targetCount },
         });
         return impact;
     } catch (error) {
@@ -354,7 +355,7 @@ async function concurrentBuild(params: {
 
     log.info("Impact Analysis complete", {
         ...snapshotIds(target, snapshotId),
-        extra: { targetCount: impact.value.targets.length },
+        extra: { targetCount: impact.value.targetCount },
     });
     return impact.value;
 }

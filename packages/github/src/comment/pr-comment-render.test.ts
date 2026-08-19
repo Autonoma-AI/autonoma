@@ -45,7 +45,9 @@ describe("renderMarkdown - unified pr comment", () => {
             link: { label: "See preview", href: "https://preview.example.com" },
         };
         const markdown = renderMarkdown(prPayload({ preview }));
-        expect(markdown).toContain("🟡 Building the preview environment · [See preview](<https://preview.example.com>)");
+        expect(markdown).toContain(
+            "🟡 Building the preview environment · [See preview](<https://preview.example.com>)",
+        );
         // Section 1 precedes the analysis headline.
         expect(markdown.indexOf("Building the preview environment")).toBeLessThan(
             markdown.indexOf("Autonoma is analyzing this PR."),

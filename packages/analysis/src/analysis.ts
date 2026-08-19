@@ -15,6 +15,7 @@ import { type Finding, type FindingIdentity, readFindingIds, readFindings } from
 import { type Issue, readIssues } from "./queries/read-issues";
 import { type AnalysisLifecycle, readLifecycle } from "./queries/read-lifecycle";
 import { type SettledReport, readSettledReport } from "./queries/read-report";
+import { type SelectionTarget, readSelectionTargets } from "./queries/read-selection";
 import { type ReportSettlement, type SettleReportResult, settleAnalysisReport } from "./settle-report";
 
 export interface RecordClassificationInput {
@@ -158,6 +159,11 @@ export class Analysis {
     /** This analysis's findings, contained ones included, slug-ordered. See {@link readFindings}. */
     public async findings(): Promise<Finding[]> {
         return readFindings(this.db, this.snapshotId);
+    }
+
+    /** The run's selection as investigation targets, read from its findings. See {@link readSelectionTargets}. */
+    public async selectionTargets(): Promise<SelectionTarget[]> {
+        return readSelectionTargets(this.db, this.snapshotId);
     }
 
     /**

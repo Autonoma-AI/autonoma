@@ -73,11 +73,14 @@ export interface RunImpactAnalysisInput {
 }
 
 export interface RunImpactAnalysisOutput {
-    /** The diff-affected tests to fan out one Investigator over each. */
-    targets: AnalysisInvestigationTarget[];
-    /** The stage's account of WHY it selected this set (affected + proposed). Persisted onto the AnalysisReport
-     * by the Reporter. Optional: absent when selection produced no reasoning. */
-    reasoning?: string;
+    /** How many tests the stage selected - the build warrant reads this. The targets and reasoning themselves are
+     * persisted (findings + `AnalysisJob`) and re-read downstream, never passed through the workflow. */
+    targetCount: number;
+}
+
+export interface ListInvestigationTargetsInput {
+    /** The run's snapshot; its selected findings ARE the targets. */
+    snapshotId: string;
 }
 
 /**
@@ -166,9 +169,6 @@ export interface RecordAnalysisContainmentOutput {
 
 export interface RunReporterInput {
     snapshotId: string;
-    /** The Impact Analysis stage's selection reasoning, persisted onto the AnalysisReport. Optional: absent when
-     * the stage produced none. */
-    impactReasoning?: string;
 }
 
 /** The Reporter's result was settled: the report row, its verdict and its issue reconciliations all committed. */
@@ -414,6 +414,8 @@ export interface AnalysisActivities {
      */
     postAnalyzingPrComment(input: PostAnalyzingPrCommentInput): Promise<PostAnalyzingPrCommentOutput>;
     runImpactAnalysis(input: RunImpactAnalysisInput): Promise<RunImpactAnalysisOutput>;
+    /** The run's investigation targets, read from the findings selection created it. */
+    listInvestigationTargets(input: ListInvestigationTargetsInput): Promise<AnalysisInvestigationTarget[]>;
     /**
      * Start one execution of a target's pinned plan - the only way a run begins. Called by the
      * Investigator immediately before provisioning, so a scenario failure still has a run to hang

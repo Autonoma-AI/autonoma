@@ -439,7 +439,7 @@ integrationTestSuite({
             const run = await harness.seedRun([]);
 
             const result = await runReporter(
-                { snapshotId: run.snapshotId, impactReasoning: "Documentation only." },
+                { snapshotId: run.snapshotId },
                 {
                     produceResult: fixedResult({
                         reportMarkdown: "## Report",

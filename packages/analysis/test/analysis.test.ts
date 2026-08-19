@@ -419,6 +419,20 @@ analysisSuite({
             }
         });
 
+        test("selectionTargets reads the run's selection back from its findings", async ({ harness }) => {
+            const run = await harness.seedAnalysis();
+            const scope = harness.store.forAnalysis(run.snapshotId);
+            const bySlug = await harness.selectTests(run, ["checkout", "login"]);
+
+            const targets = await scope.selectionTargets();
+            expect(targets.map((target) => target.slug)).toEqual(["checkout", "login"]);
+            for (const target of targets) {
+                expect(target.testCaseId).toBe(bySlug.get(target.slug));
+                expect(target.origin).toBe("pre_existing");
+                expect(target.selectionReason).toBe(`${bySlug.get(target.slug)} affected by the diff`);
+            }
+        });
+
         test("an unjudged selected finding counts toward neither plane", async ({ harness }) => {
             const run = await harness.seedAnalysis();
             const scope = harness.store.forAnalysis(run.snapshotId);

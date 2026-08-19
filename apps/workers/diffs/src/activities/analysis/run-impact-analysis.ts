@@ -12,7 +12,8 @@ import { getAnalysisStore } from "../../services";
  * and stage edits onto it via `OpenSnapshot`, which requires `processing`) - the branch's real pending snapshot.
  * Then absorbs the merge flow on a main-branch run and reuses the DiffsAgent to select the tests the diff affects
  * and author brand-new ones, materializing each through the canonical update actions (see `selectImpactTargets`).
- * Hands the resulting targets to the Investigator fan-out and returns the agent's selection reasoning for the report.
+ * Persists the selection (findings) and the reasoning (onto the job) and returns only the target COUNT - the
+ * fan-out and the Reporter re-read the selection and reasoning from the DB, never through the workflow.
  */
 export async function runImpactAnalysis(input: RunImpactAnalysisInput): Promise<RunImpactAnalysisOutput> {
     const { snapshotId } = input;
@@ -45,6 +46,7 @@ export async function runImpactAnalysis(input: RunImpactAnalysisInput): Promise<
 
     await analysis.recordImpactReasoning(selection.reasoning);
 
-    logger.info("Impact Analysis stage finished", { extra: { targetCount: selection.targets.length } });
-    return { targets: selection.targets, reasoning: selection.reasoning };
+    const targetCount = selection.targets.length;
+    logger.info("Impact Analysis stage finished", { extra: { targetCount } });
+    return { targetCount };
 }

@@ -6,10 +6,11 @@ import { heartbeat } from "@temporalio/activity";
 export { openAnalysisRun } from "./analysis/open-analysis-run";
 
 import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-test";
+import { listInvestigationTargets as listInvestigationTargetsImpl } from "./analysis/list-investigation-targets";
 import { openAnalysisRun } from "./analysis/open-analysis-run";
 import { openMergeGate as openMergeGateImpl } from "./analysis/open-merge-gate";
-import { postAnalyzingPrCommentActivity } from "./analysis/post-analyzing-pr-comment";
 import { persistAnalysisClassification as persistAnalysisClassificationImpl } from "./analysis/persist-classification";
+import { postAnalyzingPrCommentActivity } from "./analysis/post-analyzing-pr-comment";
 import { recordAnalysisContainment as recordAnalysisContainmentImpl } from "./analysis/record-analysis-containment";
 import { revertSelfHealPlan as revertSelfHealPlanImpl } from "./analysis/revert-self-heal-plan";
 import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impact-analysis";
@@ -66,6 +67,8 @@ export const revertSelfHealPlan = withHeartbeat(revertSelfHealPlanImpl);
 export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
 export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassificationImpl);
 export const recordAnalysisContainment = withHeartbeat(recordAnalysisContainmentImpl);
+// A fast DB read of the run's selection - like openAnalysisRun, nothing long-running to heartbeat.
+export const listInvestigationTargets = listInvestigationTargetsImpl;
 
 // Compile-time check: this worker implements the whole DIFFS-queue contract - the run's stages, the per-test
 // classify, and the Investigator's row-local writes.
@@ -74,6 +77,7 @@ export const recordAnalysisContainment = withHeartbeat(recordAnalysisContainment
     openMergeGate,
     postAnalyzingPrComment,
     runImpactAnalysis,
+    listInvestigationTargets,
     startInvestigationRun,
     classifyInvestigationRun,
     selfHealAnalysisTest,
