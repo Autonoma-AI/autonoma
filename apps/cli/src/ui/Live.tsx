@@ -1,9 +1,12 @@
 import { useInput, type Key } from "ink";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { track } from "../core/analytics";
 import { interruptPress } from "../core/interrupt";
 import { App } from "./App";
 import { useStore } from "./hooks/useStore";
+import { useTerminalSize } from "./hooks/useTerminalSize";
 import type { RunStore } from "./store";
+import { terminalFitsDashboard } from "./viewport";
 
 /**
  * Binds the live run store to the presentational <App> and owns Ctrl+C.
@@ -23,6 +26,24 @@ export function Live({ store, onKeystroke }: { store: RunStore; onKeystroke?: (l
     store.startClock();
     return () => store.stopClock();
   }, [store]);
+
+  // A window too small to draw the dashboard in is invisible from the outside -
+  // the run looks like it is progressing normally while the user sees a resize
+  // notice instead of the UI. Report it, with the size that caused it.
+  const size = useTerminalSize();
+  const fits = terminalFitsDashboard(size);
+  const reported = useRef(false);
+  useEffect(() => {
+    if (fits) {
+      reported.current = false;
+      return;
+    }
+    // Once per spell, not once per resize event: dragging a window smaller
+    // emits a size change per frame, and every one of them is the same fact.
+    if (reported.current) return;
+    reported.current = true;
+    track("cli_terminal_too_small", { columns: size.columns, rows: size.rows });
+  }, [fits, size]);
 
   useInput((input, key) => {
     onKeystroke?.(describeKey(input, key));

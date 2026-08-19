@@ -6,11 +6,13 @@ import { allArtifacts } from "../nav";
 import { STEP_DOCS, STEP_INTROS, STEP_OUTPUTS } from "../steps";
 import { theme } from "../theme";
 import type { ActivityEntry, Artifact, RunState, StepNode } from "../types";
+import { gridFitsDashboard } from "../viewport";
 import { drawHints, drawSpans, drawTopBar, type Hint } from "./chrome";
 import { drawCompletionModal } from "./completion";
 import { drawCountdownModal } from "./countdown";
 import { drawHelpModal } from "./help";
 import { drawPromptModal } from "./prompt";
+import { drawResizeNotice } from "./resize-notice";
 import { drawWelcomeModal } from "./welcome";
 import { wrapPlain } from "./wrap";
 
@@ -417,6 +419,12 @@ function drawActivity(g: Grid, state: RunState, top: number, h: number): void {
 export function drawDashboard(g: Grid, state: RunState): void {
     const W = g.w;
     const H = g.h;
+    // The layout below assumes room for every region. Under the floor the
+    // regions overlap and the frame reads as noise, so say so instead.
+    if (!gridFitsDashboard(W, H)) {
+        drawResizeNotice(g, state);
+        return;
+    }
     drawTopBar(g, state);
     const geo = computeGeometry(W);
 

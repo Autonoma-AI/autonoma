@@ -6,6 +6,10 @@ import { wrapPlain } from "./wrap";
 const MODAL_MAX_W = 84;
 const MODAL_FILL = "#141414";
 const DEFAULT_EYEBROW = "WELCOME TO AUTONOMA";
+/** Topmost row the modal may start on, leaving the progress bar visible above it. */
+const MODAL_TOP = 2;
+/** Border, eyebrow, blank, title, blank, blank, cta, border - everything but the body. */
+const CHROME_ROWS = 8;
 
 /**
  * A big centered modal that owns the screen until the user presses enter (the
@@ -22,14 +26,25 @@ export function drawWelcomeModal(g: Grid, state: RunState): void {
     const innerW = w - 8;
 
     const titleLines = wrapPlain(wel.title, innerW);
-    const bodyLines = wel.lines.flatMap((line, i) => {
-        const wrapped = wrapPlain(line, innerW);
-        return i === 0 ? wrapped : ["", ...wrapped];
-    });
 
-    const h = 2 + 1 + titleLines.length + 1 + bodyLines.length + 2 + 2;
+    // The body is author-written and unbounded, so it can outgrow a short
+    // terminal - and drawing past the bottom edge silently loses instructions
+    // the run cannot continue past. Give up the blank line between paragraphs
+    // first (it buys a row per paragraph and costs only air), and only then
+    // clamp, saying how much is missing.
+    const chromeRows = CHROME_ROWS + titleLines.length;
+    const bodyBudget = Math.max(1, H - MODAL_TOP - 1 - chromeRows);
+    const paragraphs = wel.lines.map((line) => wrapPlain(line, innerW));
+    const spaced = paragraphs.flatMap((lines, i) => (i === 0 ? lines : ["", ...lines]));
+    const bodyLines = spaced.length <= bodyBudget ? spaced : paragraphs.flat();
+
+    const overflows = bodyLines.length > bodyBudget;
+    const shownBody = overflows ? bodyLines.slice(0, bodyBudget - 1) : bodyLines;
+    const hiddenLines = bodyLines.length - shownBody.length;
+
+    const h = chromeRows + shownBody.length + (overflows ? 1 : 0);
     const x = Math.floor((W - w) / 2);
-    const y = Math.max(2, Math.floor((H - h) / 2));
+    const y = Math.max(MODAL_TOP, Math.floor((H - h) / 2));
 
     g.clearRect(x, y, w, h, MODAL_FILL);
     g.rect(x, y, w, h, { edge: theme.cardEdge, corner: theme.accent });
@@ -45,9 +60,16 @@ export function drawWelcomeModal(g: Grid, state: RunState): void {
         cy++;
     }
     cy++;
-    for (const line of bodyLines) {
+    for (const line of shownBody) {
         g.text(x + 4, cy, line, { color: theme.secondary, bg });
         cy++;
+    }
+    if (overflows) {
+        g.text(x + 4, cy, `+${hiddenLines} more lines - make the terminal taller to read them`, {
+            color: theme.amber,
+            bold: true,
+            bg,
+        });
     }
 
     const ly = y + h - 2;

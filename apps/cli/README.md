@@ -144,6 +144,10 @@ written right now streams from disk on the right - so you can read the knowledge
 and tests as they are produced. Navigate with arrows or `h/j/k/l`, `f` to follow the newest file,
 `?` for help, Ctrl+C twice to exit with progress saved.
 
+The dashboard needs a terminal of at least **80x24**. Below that it shows a resize notice instead
+of a frame it cannot lay out, and comes back on its own once the window is big enough - the run
+keeps going either way.
+
 Piped output, CI and `--non-interactive` keep plain line-based output.
 
 ## Output

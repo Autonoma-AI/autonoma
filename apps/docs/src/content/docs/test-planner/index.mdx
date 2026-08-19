@@ -77,6 +77,8 @@ The pipeline runs as a strip across the top, so you can see every step and which
 
 Navigate with the arrow keys (or `h/j/k/l`): move between panels, open any produced file, and scroll it while the run continues. Press `f` to jump back to following the newest file. Progress is saved continuously - Ctrl+C twice exits, and `--resume` picks up where you left off.
 
+The dashboard needs a terminal window of at least 80x24. In anything smaller it shows a short resize notice rather than a layout it cannot fit, and returns by itself the moment the window is big enough. The run continues regardless - only the display waits.
+
 ## What it does
 
 | # | Step | What it does | Output |

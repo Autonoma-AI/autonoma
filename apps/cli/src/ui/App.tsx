@@ -6,6 +6,7 @@ import type { NavAction } from "./nav";
 import type { PromptAction } from "./prompt";
 import { Dashboard } from "./screens/Dashboard";
 import type { CompletionChoice, PromptRequest, RunState } from "./types";
+import { gridFitsDashboard, gridRowsFor } from "./viewport";
 
 /** Everything a prompt needs from the outside: draft edits, submit, cancel. */
 export interface PromptHandlers {
@@ -50,7 +51,8 @@ export function App({
 }) {
   const measured = useTerminalSize();
   const { rows, columns } = size ?? measured;
-  const gridRows = Math.max(10, rows - 1);
+  const gridRows = gridRowsFor(rows);
+  const fits = gridFitsDashboard(columns, gridRows);
 
   // Tell the nav reducer how tall the viewer is, so unfollowing starts
   // scrolling from the tail position that's actually on screen.
@@ -59,6 +61,12 @@ export function App({
   }, [columns, gridRows, onNav]);
 
   useInput((input, key) => {
+    // Too small to draw: the resize notice is on screen instead of the UI these
+    // keys act on. Answering a question you cannot read - or scrolling a
+    // document you cannot see - is worse than a dead keyboard, so nothing is
+    // handled here. Ctrl+C still exits; Live owns that key.
+    if (!fits) return;
+
     // While help is open it swallows the keyboard: ? / esc / q close it.
     if (state.helpOpen) {
       if (input === "?" || key.escape || input === "q") onHelp?.(false);
@@ -116,8 +124,6 @@ export function App({
     else if (input === "G") onNav({ type: "scrollBottom" });
   });
 
-  // Leave one terminal row free: rendering exactly `rows` lines makes the
-  // terminal scroll and the frame walks off-screen (inline rendering).
   return <Dashboard state={state} width={columns} rows={gridRows} />;
 }
 
