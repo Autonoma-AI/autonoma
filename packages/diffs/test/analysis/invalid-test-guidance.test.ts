@@ -3,10 +3,10 @@ import { CLASSIFIER_SYSTEM_PROMPT } from "../../src/analysis/classify/prompt";
 
 describe("invalid-test classifier guidance", () => {
     it("leaves deletion to the model when failed rewrites show no meaningful plan remains", () => {
-        expect(CLASSIFIER_SYSTEM_PROMPT).toContain("A failed self-heal is evidence, NEVER an automatic deletion rule:");
         expect(CLASSIFIER_SYSTEM_PROMPT).toContain(
-            "YOU decide whether the accumulated description, run, code, and prior attempts establish",
+            "A failed self-heal is EVIDENCE about the description, never an automatic deletion AND never an automatic salvage",
         );
-        expect(CLASSIFIER_SYSTEM_PROMPT).toContain("do not invent a weaker plan merely to keep the test.");
+        expect(CLASSIFIER_SYSTEM_PROMPT).toContain("the number of failed repairs never decides it; you do");
+        expect(CLASSIFIER_SYSTEM_PROMPT).toContain("Never fabricate a weaker plan just to keep a test.");
     });
 });
