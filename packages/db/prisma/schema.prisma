@@ -1459,6 +1459,8 @@ enum CreditTransactionType {
   LLM_PROXY_CONSUMPTION
   PREVIEW_RUNTIME_CONSUMPTION
   VERCEL_OVERAGE_GRANT
+  AI_COST_CONSUMPTION
+  PREVIEW_BUILD_CONSUMPTION
 
   @@map("credit_transaction_type")
 }
@@ -1816,6 +1818,7 @@ enum GitHubPrCommentKind {
   // The single Autonoma PR comment - preview status + analysis - owned by the analysis run workflow. Supersedes the
   // separate `preview` and `analysis` comments, which the workflow deletes on this comment's first post.
   pr
+  credits
 
   @@map("github_pr_comment_kind")
 }
