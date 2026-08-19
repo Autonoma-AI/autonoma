@@ -7,7 +7,7 @@ const baseService = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => (
     name: "cache",
     recipe: "redis",
     options: {},
-    resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
+    resources: { cpu: "250m", memory: "512Mi" },
     ...overrides,
 });
 
@@ -26,7 +26,7 @@ describe("RedisRecipe", () => {
             periodSeconds: 5,
         });
         expect(container?.resources).toEqual({
-            requests: { cpu: "250m", memory: "256Mi" },
+            requests: { cpu: "250m", memory: "512Mi" },
             limits: { memory: "512Mi" },
         });
 

@@ -71,11 +71,10 @@ integrationTestSuite({
 
             const loaded = await loadConfig(applicationId);
 
-            expect(loaded!.apps[0]!.resources).toEqual({ cpu: "2", memoryRequest: "4Gi", memoryLimit: "4Gi" });
+            expect(loaded!.apps[0]!.resources).toEqual({ cpu: "2", memory: "4Gi" });
             expect(loaded!.services[0]!.resources).toEqual({
                 cpu: "1",
-                memoryRequest: "2Gi",
-                memoryLimit: "2Gi",
+                memory: "2Gi",
             });
         });
 

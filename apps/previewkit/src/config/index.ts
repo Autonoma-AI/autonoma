@@ -55,13 +55,11 @@ export function createPreviewkitDefaults(env: PreviewkitDefaultsEnv): Previewkit
             resources: {
                 app: {
                     cpu: STANDARD_RESOURCES.app.cpu,
-                    memoryRequest: STANDARD_RESOURCES.app.memoryRequest,
-                    memoryLimit: STANDARD_RESOURCES.app.memoryLimit,
+                    memory: STANDARD_RESOURCES.app.memory,
                 },
                 service: {
                     cpu: STANDARD_RESOURCES.service.cpu,
-                    memoryRequest: STANDARD_RESOURCES.service.memoryRequest,
-                    memoryLimit: STANDARD_RESOURCES.service.memoryLimit,
+                    memory: STANDARD_RESOURCES.service.memory,
                 },
             },
         },

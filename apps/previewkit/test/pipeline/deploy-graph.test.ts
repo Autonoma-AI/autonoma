@@ -10,7 +10,7 @@ function app(name: string, depends_on?: string[]): AppConfig {
         port: 3000,
         connections: [],
         build_secrets: [],
-        resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
+        resources: { cpu: "250m", memory: "512Mi" },
         depends_on,
     };
 }

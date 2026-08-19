@@ -79,7 +79,7 @@ describe("previewConfigSchema", () => {
         expect(result.repositories).toEqual([]);
         expect(result.branch_convention).toBeUndefined();
         // On the untrusted schema, omitting resources yields the app-tier standard.
-        expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
+        expect(result.apps[0].resources).toEqual({ cpu: "250m", memory: "1Gi" });
     });
 
     describe("repository field", () => {
@@ -173,7 +173,7 @@ describe("previewConfigSchema", () => {
     describe("resources (ignored on the untrusted schema)", () => {
         it("yields the app-tier standard when omitted", () => {
             const result = previewConfigSchema.parse(validConfig);
-            expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
+            expect(result.apps[0].resources).toEqual({ cpu: "250m", memory: "1Gi" });
         });
 
         it("ignores explicit app and service resource input", () => {
@@ -182,16 +182,22 @@ describe("previewConfigSchema", () => {
                 apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { cpu: "500m", memory: "2Gi" } }],
                 services: [{ name: "db", recipe: "postgres", resources: { cpu: "250m", memory: "2Gi" } }],
             });
-            expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
+            expect(result.apps[0].resources).toEqual({ cpu: "250m", memory: "1Gi" });
             expect(result.services[0].resources).toEqual({
                 cpu: "100m",
-                memoryRequest: "256Mi",
-                memoryLimit: "1Gi",
+                memory: "1Gi",
             });
         });
 
-        it("ignores the normalized memoryRequest/memoryLimit keys too", () => {
-            const result = previewConfigSchema.parse({
+        /**
+         * `memoryRequest` / `memoryLimit` were the shape before memory became one
+         * number, and a document stored back then still carries them. They have to
+         * parse - dropped, not rejected - or every config authored before the change
+         * becomes unreadable. Asserted on the TRUSTED schema, which is the one that
+         * would honor them if anything still did.
+         */
+        it("drops the retired memoryRequest/memoryLimit keys instead of failing on them", () => {
+            const result = trustedPreviewConfigSchema.parse({
                 version: 2,
                 apps: [
                     {
@@ -202,7 +208,8 @@ describe("previewConfigSchema", () => {
                     },
                 ],
             });
-            expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
+
+            expect(result.apps[0].resources).toEqual({ cpu: "2", memory: "1Gi" });
         });
 
         it("still validates a config that sets resources (backward compatibility)", () => {
@@ -223,8 +230,8 @@ describe("previewConfigSchema", () => {
                 apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { cpu: "2", memory: "4Gi" } }],
                 services: [{ name: "db", recipe: "postgres", resources: { cpu: "1", memory: "2Gi" } }],
             });
-            expect(result.apps[0].resources).toEqual({ cpu: "2", memoryRequest: "4Gi", memoryLimit: "4Gi" });
-            expect(result.services[0].resources).toEqual({ cpu: "1", memoryRequest: "2Gi", memoryLimit: "2Gi" });
+            expect(result.apps[0].resources).toEqual({ cpu: "2", memory: "4Gi" });
+            expect(result.services[0].resources).toEqual({ cpu: "1", memory: "2Gi" });
         });
 
         it("falls back to the tier standard for any field the document omits", () => {
@@ -232,7 +239,7 @@ describe("previewConfigSchema", () => {
                 version: 2,
                 apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { cpu: "2" } }],
             });
-            expect(result.apps[0].resources).toEqual({ cpu: "2", memoryRequest: "512Mi", memoryLimit: "1Gi" });
+            expect(result.apps[0].resources).toEqual({ cpu: "2", memory: "1Gi" });
         });
 
         it("yields the standard tier when resources is omitted", () => {
@@ -240,7 +247,7 @@ describe("previewConfigSchema", () => {
                 version: 2,
                 apps: [{ name: "web", repository: "acme/web", port: 3000 }],
             });
-            expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
+            expect(result.apps[0].resources).toEqual({ cpu: "250m", memory: "1Gi" });
         });
 
         it("is idempotent when re-parsing an already-resolved config (deploy round-trip)", () => {

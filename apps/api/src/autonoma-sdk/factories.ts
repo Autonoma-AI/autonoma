@@ -1032,8 +1032,7 @@ async function resolveSeededPreviewkitAppId(
             path: ".",
             port: port ?? DEFAULT_PREVIEW_APP_PORT,
             resourcesCpu: STANDARD_RESOURCES.app.cpu,
-            resourcesMemoryRequest: STANDARD_RESOURCES.app.memoryRequest,
-            resourcesMemoryLimit: STANDARD_RESOURCES.app.memoryLimit,
+            resourcesMemory: STANDARD_RESOURCES.app.memory,
         },
         select: { id: true },
     });

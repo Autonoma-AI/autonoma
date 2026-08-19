@@ -2315,9 +2315,15 @@ model PreviewkitApp {
   // opinion, which is what keeps a hand-registered endpoint from being rewritten.
   sdkPath String? @map("sdk_path")
 
-  resourcesCpu           String @map("resources_cpu")
-  resourcesMemoryRequest String @map("resources_memory_request")
-  resourcesMemoryLimit   String @map("resources_memory_limit")
+  /// A request with no limit: capping CPU throttles a container's startup burst.
+  resourcesCpu           String  @map("resources_cpu")
+  /// Both the request and the limit - what a container is promised is what it may use.
+  resourcesMemory        String  @default("1Gi") @map("resources_memory")
+  /// Vestigial. Superseded by `resourcesMemory`; nothing reads or writes them.
+  /// Nullable so the writers could stop filling them in before the columns come
+  /// off, which the next migration does.
+  resourcesMemoryRequest String? @map("resources_memory_request")
+  resourcesMemoryLimit   String? @map("resources_memory_limit")
 
   dependsOn String[] @default([]) @map("depends_on")
 
@@ -2369,9 +2375,15 @@ model PreviewkitConfigService {
   /// ![PreviewkitServiceOptions]
   options Json
 
-  resourcesCpu           String @map("resources_cpu")
-  resourcesMemoryRequest String @map("resources_memory_request")
-  resourcesMemoryLimit   String @map("resources_memory_limit")
+  /// A request with no limit: capping CPU throttles a container's startup burst.
+  resourcesCpu           String  @map("resources_cpu")
+  /// Both the request and the limit - what a container is promised is what it may use.
+  resourcesMemory        String  @default("1Gi") @map("resources_memory")
+  /// Vestigial. Superseded by `resourcesMemory`; nothing reads or writes them.
+  /// Nullable so the writers could stop filling them in before the columns come
+  /// off, which the next migration does.
+  resourcesMemoryRequest String? @map("resources_memory_request")
+  resourcesMemoryLimit   String? @map("resources_memory_limit")
 
   s3  Boolean?
   sqs Boolean?

@@ -71,8 +71,7 @@ export interface PreviewkitConfigAppRow {
     sdkImplemented: boolean | null;
     sdkPath: string | null;
     resourcesCpu: string;
-    resourcesMemoryRequest: string;
-    resourcesMemoryLimit: string;
+    resourcesMemory: string;
     dependsOn: string[];
     connections: PreviewkitConfigConnectionRow[];
 }
@@ -91,8 +90,7 @@ export interface PreviewkitConfigServiceRow {
     version: string | null;
     options: unknown;
     resourcesCpu: string;
-    resourcesMemoryRequest: string;
-    resourcesMemoryLimit: string;
+    resourcesMemory: string;
     s3: boolean | null;
     sqs: boolean | null;
     sns: boolean | null;
@@ -150,8 +148,7 @@ export interface PreviewkitConfigAppValues {
     sdkImplemented?: boolean;
     sdkPath?: string;
     resourcesCpu: string;
-    resourcesMemoryRequest: string;
-    resourcesMemoryLimit: string;
+    resourcesMemory: string;
     dependsOn: string[];
     connections: PreviewkitConfigConnectionValues[];
 }
@@ -170,8 +167,7 @@ export interface PreviewkitConfigServiceValues {
     version?: string;
     options: Record<string, unknown>;
     resourcesCpu: string;
-    resourcesMemoryRequest: string;
-    resourcesMemoryLimit: string;
+    resourcesMemory: string;
     s3?: boolean;
     sqs?: boolean;
     sns?: boolean;
@@ -327,15 +323,10 @@ function hookStepsFromRows(hooks: PreviewkitConfigHookRow[], group: HookGroupKey
     }));
 }
 
-function resourcesFromRow(row: {
-    resourcesCpu: string;
-    resourcesMemoryRequest: string;
-    resourcesMemoryLimit: string;
-}): ContainerResources {
+function resourcesFromRow(row: { resourcesCpu: string; resourcesMemory: string }): ContainerResources {
     return {
         cpu: row.resourcesCpu,
-        memoryRequest: row.resourcesMemoryRequest,
-        memoryLimit: row.resourcesMemoryLimit,
+        memory: row.resourcesMemory,
     };
 }
 
@@ -357,8 +348,7 @@ function appValues(app: PreviewConfig["apps"][number], position: number): Previe
         sdkImplemented: app.sdk_implemented,
         sdkPath: app.sdk_path,
         resourcesCpu: app.resources.cpu,
-        resourcesMemoryRequest: app.resources.memoryRequest,
-        resourcesMemoryLimit: app.resources.memoryLimit,
+        resourcesMemory: app.resources.memory,
         dependsOn: app.depends_on ?? [],
         connections: app.connections.map((connection, connectionPosition) => ({
             position: connectionPosition,
@@ -377,8 +367,7 @@ function serviceValues(service: PreviewConfig["services"][number], position: num
         version: service.version,
         options: service.options,
         resourcesCpu: service.resources.cpu,
-        resourcesMemoryRequest: service.resources.memoryRequest,
-        resourcesMemoryLimit: service.resources.memoryLimit,
+        resourcesMemory: service.resources.memory,
         s3: service.s3,
         sqs: service.sqs,
         sns: service.sns,

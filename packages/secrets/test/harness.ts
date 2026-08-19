@@ -93,8 +93,7 @@ export class SecretsHarness implements IntegrationHarness {
                 path: ".",
                 port: 3000,
                 resourcesCpu: "250m",
-                resourcesMemoryRequest: "512Mi",
-                resourcesMemoryLimit: "1Gi",
+                resourcesMemory: "1Gi",
             },
             select: { id: true },
         });

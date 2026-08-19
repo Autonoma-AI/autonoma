@@ -43,8 +43,7 @@ function store(values: PreviewkitConfigRowValues): PreviewkitConfigRows {
             sdkImplemented: app.sdkImplemented ?? null,
             sdkPath: app.sdkPath ?? null,
             resourcesCpu: app.resourcesCpu,
-            resourcesMemoryRequest: app.resourcesMemoryRequest,
-            resourcesMemoryLimit: app.resourcesMemoryLimit,
+            resourcesMemory: app.resourcesMemory,
             dependsOn: app.dependsOn,
             connections: app.connections,
         })),
@@ -55,8 +54,7 @@ function store(values: PreviewkitConfigRowValues): PreviewkitConfigRows {
             version: service.version ?? null,
             options: service.options,
             resourcesCpu: service.resourcesCpu,
-            resourcesMemoryRequest: service.resourcesMemoryRequest,
-            resourcesMemoryLimit: service.resourcesMemoryLimit,
+            resourcesMemory: service.resourcesMemory,
             s3: service.s3 ?? null,
             sqs: service.sqs ?? null,
             sns: service.sns ?? null,
@@ -240,8 +238,8 @@ describe("preview config rows round trip", () => {
             services: [{ name: "db", recipe: "postgres", resources: { cpu: "1", memory: "2Gi" } }],
         });
 
-        expect(config.apps[0]?.resources).toEqual({ cpu: "2", memoryRequest: "4Gi", memoryLimit: "4Gi" });
-        expect(config.services[0]?.resources).toEqual({ cpu: "1", memoryRequest: "2Gi", memoryLimit: "2Gi" });
+        expect(config.apps[0]?.resources).toEqual({ cpu: "2", memory: "4Gi" });
+        expect(config.services[0]?.resources).toEqual({ cpu: "1", memory: "2Gi" });
     });
 
     it("preserves a retired framework preset, which stored documents may still carry", () => {

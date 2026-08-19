@@ -12,14 +12,15 @@ import { PREVIEWKIT_RUNTIME_IDS, type PreviewkitRuntime } from "./previewkit-run
 import { SecretKeySchema } from "./secrets";
 
 export interface ContainerResources {
+    /** A request with no limit: capping CPU throttles a container's startup burst. */
     cpu: string;
-    memoryRequest: string;
-    memoryLimit: string;
+    /** Both the request and the limit - what a container is promised is what it may use. */
+    memory: string;
 }
 
 export const STANDARD_RESOURCES = {
-    app: { cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" },
-    service: { cpu: "100m", memoryRequest: "256Mi", memoryLimit: "1Gi" },
+    app: { cpu: "250m", memory: "1Gi" },
+    service: { cpu: "100m", memory: "1Gi" },
 } as const;
 
 export type PreviewResourceRole = keyof typeof STANDARD_RESOURCES;
@@ -53,10 +54,16 @@ const repoFullNameRegex = /^[^/\s]+\/[^/\s]+$/;
 export const DEFAULT_DEPENDENCY_FALLBACK_BRANCH = "main";
 
 /**
- * Per-container `resources` input. `cpu` and `memory` are the client-facing
- * knobs; the normalized `memoryRequest` / `memoryLimit` keys are accepted too so
- * that re-parsing an already-resolved config is idempotent (the merged config is
- * re-validated at deploy time after crossing the Temporal activity boundary).
+ * Per-container `resources` input: one knob per resource, `cpu` and `memory`.
+ *
+ * Re-parsing an already-resolved config yields the same thing, which matters
+ * because the merged config is re-validated at deploy time after crossing the
+ * Temporal activity boundary.
+ *
+ * A config stored before memory became one number still carries `memoryRequest`
+ * and `memoryLimit`. Those are no longer declared, so Zod drops them - the
+ * document parses rather than failing, and the container falls back to the tier
+ * standard rather than to whatever the retired pair said.
  *
  * Whether these values take effect is decided by the config's source, not the
  * field itself - see {@link buildResourcesSchema}.
@@ -65,8 +72,6 @@ const resourcesInput = z
     .object({
         cpu: z.string().optional(),
         memory: z.string().optional(),
-        memoryRequest: z.string().optional(),
-        memoryLimit: z.string().optional(),
     })
     .optional();
 
@@ -81,8 +86,13 @@ const resourcesInput = z
  *   for its role. The field is still accepted so existing configs keep validating.
  * - `allowCustomResources === true` (trusted platform-authored config): client
  *   `cpu` / `memory` are honored, each missing field falling back to the tier standard.
- *   `memory` sets both the request and the limit unless the normalized
- *   `memoryRequest` / `memoryLimit` are present (the deploy-time re-parse).
+ *
+ * One number per resource. `memory` used to be a request and a separate, larger
+ * limit, which bought nothing a reader could act on: the request decided where a
+ * pod fit and the limit decided when it died, and nobody authoring a config was
+ * thinking in those terms. It is now both, so the memory a preview is promised is
+ * the memory it is allowed. CPU stays a request with no limit, deliberately - a
+ * cap there throttles the startup burst rather than protecting anything.
  */
 function buildResourcesSchema(role: PreviewResourceRole, allowCustomResources: boolean) {
     return resourcesInput.transform((input) => {
@@ -92,8 +102,7 @@ function buildResourcesSchema(role: PreviewResourceRole, allowCustomResources: b
         const tier = STANDARD_RESOURCES[role];
         return {
             cpu: input.cpu ?? tier.cpu,
-            memoryRequest: input.memoryRequest ?? input.memory ?? tier.memoryRequest,
-            memoryLimit: input.memoryLimit ?? input.memory ?? tier.memoryLimit,
+            memory: input.memory ?? tier.memory,
         };
     });
 }
@@ -788,7 +797,7 @@ export const trustedPreviewConfigSchema = buildPreviewConfigSchema(storedBuildSc
 export const authoringPreviewConfigSchema = buildPreviewConfigSchema(authoredBuildSchema, false);
 
 // Both variants produce the same shape (resources is always the normalized
-// `{ cpu, memoryRequest, memoryLimit }`); only the source of the values differs.
+// `{ cpu, memory }`); only the source of the values differs.
 export type PreviewConfig = z.infer<typeof previewConfigSchema>;
 export type AppConfig = PreviewConfig["apps"][number];
 export type Connection = z.infer<typeof connectionSchema>;
@@ -1308,11 +1317,7 @@ export function validateHookSteps(
 
 function standardResources(role: PreviewResourceRole): ContainerResources {
     const standard = STANDARD_RESOURCES[role];
-    return {
-        cpu: standard.cpu,
-        memoryRequest: standard.memoryRequest,
-        memoryLimit: standard.memoryLimit,
-    };
+    return { cpu: standard.cpu, memory: standard.memory };
 }
 export type ServiceConfig<TOptions = Record<string, unknown>> = Omit<PreviewConfig["services"][number], "options"> & {
     options: TOptions;

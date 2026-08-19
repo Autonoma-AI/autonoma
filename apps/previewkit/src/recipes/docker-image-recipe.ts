@@ -80,9 +80,9 @@ export class DockerImageRecipe extends BaseRecipe<DockerImageOptions> {
             resources: {
                 requests: {
                     cpu: config.resources.cpu,
-                    memory: config.resources.memoryRequest,
+                    memory: config.resources.memory,
                 },
-                limits: { memory: config.resources.memoryLimit },
+                limits: { memory: config.resources.memory },
             },
         };
 

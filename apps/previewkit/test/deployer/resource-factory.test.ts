@@ -16,7 +16,7 @@ const baseApp: AppConfig = {
     port: 3000,
     build_secrets: [],
     connections: [],
-    resources: { cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" },
+    resources: { cpu: "250m", memory: "1Gi" },
 };
 
 const baseOpts = {
@@ -133,11 +133,11 @@ describe("buildAppDeployment", () => {
         expect(dep.spec!.template.metadata?.annotations?.["previewkit.dev/secret-version"]).toBeUndefined();
     });
 
-    it("requests cpu and memory separately from the memory limit, with no cpu limit", () => {
+    it("requests and limits the same memory, and never limits cpu", () => {
         const dep = buildAppDeployment(baseOpts);
         const container = dep.spec!.template.spec!.containers[0]!;
         expect(container.resources).toEqual({
-            requests: { cpu: "250m", memory: "512Mi" },
+            requests: { cpu: "250m", memory: "1Gi" },
             limits: { memory: "1Gi" },
         });
     });

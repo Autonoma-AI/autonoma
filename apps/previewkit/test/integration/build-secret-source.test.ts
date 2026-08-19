@@ -37,8 +37,7 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
                         path: ".",
                         port: 3000,
                         resourcesCpu: "250m",
-                        resourcesMemoryRequest: "512Mi",
-                        resourcesMemoryLimit: "1Gi",
+                        resourcesMemory: "1Gi",
                     },
                 });
                 const provider = new FakeKeyProvider();

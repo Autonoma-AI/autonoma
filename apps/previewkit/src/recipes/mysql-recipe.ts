@@ -75,10 +75,10 @@ export class MysqlRecipe extends BaseRecipe {
                                 resources: {
                                     requests: {
                                         cpu: config.resources.cpu,
-                                        memory: config.resources.memoryRequest,
+                                        memory: config.resources.memory,
                                     },
                                     limits: {
-                                        memory: config.resources.memoryLimit,
+                                        memory: config.resources.memory,
                                     },
                                 },
                                 volumeMounts: [{ name: "data", mountPath: DATA_MOUNT_PATH }],
