@@ -12,6 +12,7 @@ export default defineConfig({
         "usage-reporter": "scripts/vercel-usage-reporter/index.ts",
         "usage-meter": "scripts/preview-usage-meter/index.ts",
         "aws-compute-pricing-drift": "scripts/aws-compute-pricing-drift/index.ts",
+        "preview-environment-reaper": "scripts/preview-environment-reaper/index.ts",
     },
     output: {
         dir: "dist",

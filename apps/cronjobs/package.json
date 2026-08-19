@@ -8,6 +8,7 @@
         "usage-reporter": "dotenv -e ../../.env -- tsx scripts/vercel-usage-reporter/index.ts",
         "usage-meter": "dotenv -e ../../.env -- tsx scripts/preview-usage-meter/index.ts",
         "aws-compute-pricing-drift": "dotenv -e ../../.env -- tsx scripts/aws-compute-pricing-drift/index.ts",
+        "preview-environment-reaper": "dotenv -e ../../.env -- tsx scripts/preview-environment-reaper/index.ts",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix scripts/",
         "build": "rolldown -c rolldown.config.ts"
@@ -15,6 +16,7 @@
     "dependencies": {
         "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
+        "@autonoma/k8s": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/utils": "workspace:*",
         "@sentry/node": "catalog:",

@@ -5,6 +5,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
     test: {
         include: ["test/**/*.test.ts"],
+        // One Postgres container for the reaper suite, which reconciles real rows.
+        globalSetup: ["./test/global-setup.ts"],
         // The kind-backed suite (real cluster, Docker required) runs separately
         // via `test:integration`; keep the default `test` run fast and hermetic.
         exclude: ["test/integration/**", "node_modules/**"],

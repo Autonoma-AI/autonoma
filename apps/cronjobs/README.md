@@ -10,6 +10,7 @@ Scheduled tasks that run periodically for background maintenance and billing ope
 | `vercel-usage-reporter` | Reports daily usage metrics (test runs, test generations) to Vercel billing API for all active installations. | Daily (01:00 UTC) |
 | `preview-usage-meter` | Closes wall-clock-aligned 15-minute previewkit compute-usage windows from the self-hosted Prometheus and deducts the corresponding credits. See `@autonoma/billing`'s `preview-usage-meter/` for the sweep/Prometheus-client implementation. | Every 15 minutes |
 | `aws-compute-pricing-drift` | Fetches live AWS pricing for the buildkit/previewkit Karpenter pools' reference instance types (blended by buildkit's real recent spot/on-demand mix), upserts it into the global `ComputePricingReference` table, and pages (Sentry, "warning") when it drifts >10% from what was stored last run. Writes only that reference table - a human decides whether to update any org's `BillingPricing` via `admin.billing.updateComputePricing` (see `@autonoma/billing`'s `aws-pricing/` for the derivation math and the manual `derive-compute-pricing-cli.ts`). | Weekly (Mon 03:00 UTC) |
+| `preview-environment-reaper` | Reconciles preview environments against the previewkit cluster: deletes namespaces past the 7-day TTL (base `*-pr-0` excluded) and writes `torn_down_at` for them, and marks rows whose namespace went some other way. Replaces the `ns-cleaner` shell CronJob, which deleted namespaces with no database access and so left every reclaimed preview still reading as `ready`. Logic in `@autonoma/k8s/preview-reaper`; `DRY_RUN=true` reports without acting. | Daily (03:00 UTC) |
 
 ## Running Locally
 
@@ -19,6 +20,7 @@ pnpm --filter @autonoma/cronjobs billing-invoicer
 pnpm --filter @autonoma/cronjobs usage-reporter
 pnpm --filter @autonoma/cronjobs usage-meter
 pnpm --filter @autonoma/cronjobs aws-compute-pricing-drift
+pnpm --filter @autonoma/cronjobs preview-environment-reaper
 
 # Or from apps/cronjobs directory
 pnpm billing-invoicer
