@@ -14,7 +14,7 @@ import { runRecipeBuilder } from "../../src/agents/04-recipe-builder/index";
 import { RECIPE_FILE } from "../../src/agents/04-recipe-builder/recipe";
 import type { RecipeBuilderState } from "../../src/agents/04-recipe-builder/state";
 import type { AppConfig } from "../../src/config";
-import type { AgentLauncher, LaunchResult } from "../../src/core/coding-agent";
+import type { AgentLauncher, LaunchRequest, LaunchResult } from "../../src/core/coding-agent";
 
 interface FakeSpec {
     exitCode: number;
@@ -30,15 +30,17 @@ interface FakeSpec {
 
 /** A fake AgentLauncher standing in for the developer's local agent: sets its exit
  *  code and (maybe) writes the completion marker, without a real TTY or subscription. */
-function fakeLauncher(spec: FakeSpec): AgentLauncher & { calls: number } {
+function fakeLauncher(spec: FakeSpec): AgentLauncher & { calls: number; lastWatch?: LaunchRequest["watch"] } {
     const launcher = {
         calls: 0,
+        lastWatch: undefined as LaunchRequest["watch"],
         id: spec.id ?? "fake",
         label: spec.label ?? "Fake Agent",
         isAvailable: () => Promise.resolve(spec.available ?? true),
         registerMcpServer: () => Promise.resolve({ env: {} }),
-        async launch(): Promise<LaunchResult> {
+        async launch(request: LaunchRequest): Promise<LaunchResult> {
             launcher.calls++;
+            launcher.lastWatch = request.watch;
             if (spec.writeMarker) {
                 await writeFile(
                     join(spec.outputDir, COMPLETION_MARKER_FILE),
@@ -305,6 +307,23 @@ describe("runRecipeBuilder handoff + completion", () => {
         expect(result.success).toBe(true);
         expect(launcher.calls).toBe(1);
         expect((await loadState()).phase).toBe("done");
+    });
+
+    // Regression for a headless hang: the completion watcher used to be attached only
+    // for interactive runs, on the assumption a `-p` run always exits on its own. It
+    // does not when it leaves a validation server running (its Bash tool call never
+    // returns), and with no watcher the pipeline wedged for over an hour after the
+    // integration was already complete and its marker written. The marker-driven reap
+    // must be armed in both modes.
+    test("the completion watcher is attached in both interactive and headless modes", async () => {
+        for (const nonInteractive of [false, true]) {
+            await seedHandoffPhase(true);
+            const launcher = fakeLauncher({ exitCode: 0, writeMarker: true, outputDir: dir });
+
+            await runRecipeBuilder({ ...baseInput(launcher), nonInteractive });
+
+            expect(launcher.lastWatch, `nonInteractive=${nonInteractive}`).toBeDefined();
+        }
     });
 
     test("re-entering the step with a spent launch budget relaunches instead of failing instantly", async () => {

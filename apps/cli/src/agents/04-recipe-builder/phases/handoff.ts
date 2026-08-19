@@ -321,10 +321,16 @@ async function launchAgent(
             message: launchMessage(promptFile),
             permissionMode,
             interactive: target.interactive,
-            // An interactive session sits open after its final message, so the marker
-            // the agent writes is the real "done" signal. A headless run exits on its
-            // own and needs no watcher.
-            watch: target.interactive ? (proc) => watchForCompletion(target.outputDir, proc) : undefined,
+            // The completion marker the agent writes is the real "done" signal, and the
+            // watcher reaps the agent once it lands - in BOTH modes. An interactive
+            // session sits open after its final message. A headless `-p` run is meant to
+            // exit on its own, but does not when it leaves a child alive (a validation
+            // server it started and forgot to stop keeps its Bash tool call open), and
+            // with no watcher nothing reclaims the terminal - the pipeline wedges here
+            // until the orphan is killed by hand. Watching in both modes closes that: on
+            // a clean exit the close event tears the watcher down before it signals, so
+            // the only behaviour it adds is reaping an agent that finished but hung.
+            watch: (proc) => watchForCompletion(target.outputDir, proc),
         });
         const launch: AgentLaunch = {
             agentLabel: launcher.label,
