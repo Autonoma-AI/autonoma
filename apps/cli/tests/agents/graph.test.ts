@@ -86,6 +86,20 @@ describe("CoverageState", () => {
         expect(state.testsWritten.get("a")).toEqual(["qa-tests/auth/login.md"]);
     });
 
+    test("markTested refuses an id no node owns instead of recording a phantom entry", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "real" }));
+
+        // An invented id must not write a phantom key that counts against nothing.
+        state.markTested("ghost", ["qa-tests/real/create.md"]);
+
+        expect(state.testsWritten.has("ghost")).toBe(false);
+        expect(state.allTestPaths()).toEqual([]);
+        expect(state.summary().totalTests).toBe(0);
+        // The real node is untouched.
+        expect(state.nodes.get("real")?.status).toBe("queued");
+    });
+
     test("allTestPaths collects all test paths", () => {
         const state = new CoverageState();
         state.enqueue(makeNode({ id: "a" }));

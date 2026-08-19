@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { captureLog } from "../../core/logs";
 import { reportSubProgress } from "../../core/progress";
 import { getActiveStore } from "../../ui/store";
 
@@ -215,7 +216,18 @@ export class CoverageState {
 
     markTested(nodeId: string, testPaths: string[]): void {
         const node = this.nodes.get(nodeId);
-        if (node) node.status = "tested";
+        if (node == null) {
+            // Never record an id no node owns: the phantom entry counts a test
+            // against nothing while the real node stays untested. Callers resolve
+            // via resolveNodeId first, so reaching here is a bug - refuse and log.
+            captureLog("warn", "markTested received an id no node owns - refusing to record coverage", {
+                source: "test-generator",
+                nodeId,
+                testPaths: testPaths.join(", "),
+            });
+            return;
+        }
+        node.status = "tested";
         const existing = this.testsWritten.get(nodeId) ?? [];
         const merged = [...existing];
         for (const path of testPaths) {

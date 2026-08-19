@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { debugLog } from "../../core/debug";
 import { listTestFiles, TEST_INDEX_FILE, TESTS_DIR } from "../../core/test-files";
 import type { CoverageState } from "./graph";
+import { pageRootOf } from "./partition";
 import { CRITICALITY_LEVELS } from "./validation";
 
 const STEP_VERBS = /^\d+\.\s+(click|type|scroll|assert|hover|drag|read|refresh):/gm;
@@ -71,7 +72,7 @@ export async function generateIndex(outputDir: string, state: CoverageState, gap
         totalInteractions += stats.interactions;
     }
 
-    const untested = untestedFeatures(state);
+    const untested = untestedPages(state);
     const lost = [...(gaps.lost ?? [])].sort();
     const totalTests = testPaths.length;
     const avgSteps = totalTests > 0 ? (totalSteps / totalTests).toFixed(1) : "0";
@@ -81,7 +82,7 @@ total_tests: ${totalTests}
 total_folders: ${folders.length}
 avg_steps_per_test: ${avgSteps}
 total_interactions: ${totalInteractions}
-features_without_tests: ${untested.length}
+pages_without_tests: ${untested.length}
 tests_lost_in_review: ${lost.length}
 criticality:
 ${CRITICALITY_LEVELS.map((level) => `  ${level}: ${critCounts.get(level) ?? 0}`).join("\n")}
@@ -102,22 +103,38 @@ ${folders.map((f) => `| ${f.name} | ${f.test_count} |`).join("\n")}
 ## All Tests
 
 ${[...testsByFolder.entries()].flatMap(([_folder, tests]) => tests.map((t) => `- \`${t}\``)).join("\n")}
-${renderSection("Features with no tests", "the run walked these and produced no test for them - re-run the planner to cover them", untested)}${renderSection("Tests lost in review", "the review cycle removed these and nothing could put them back - re-run the planner to regenerate them", lost)}`;
+${renderSection("Pages with no tests", "the run produced no test for these pages at all - re-run the planner to cover them", untested)}${renderSection("Tests lost in review", "the review cycle removed these and nothing could put them back - re-run the planner to regenerate them", lost)}`;
 
     await writeFile(join(outputDir, TESTS_DIR, TEST_INDEX_FILE), content, "utf-8");
 }
 
 /**
- * Features the run walked but produced no test for - skipped outright, or
- * explored and moved on from. The suite's real coverage gap: unlike a count that
- * disagrees with disk, each of these names something a re-run can fix.
+ * Pages the run wrote no test for. Reported per PAGE, not per feature: a feature's
+ * test collapses onto its page root, so a sibling feature's coverage is
+ * indistinguishable - the page is the finest gap we can prove. Coverage is rolled
+ * up from `testsWritten` by page root, which keeps both sides in the node-id
+ * namespace (a page id joins route segments with "-", so it never equals the
+ * top-level test folder) and mirrors how backfillUncoveredPages decides coverage,
+ * so the index and the backfill agree.
  */
-function untestedFeatures(state: CoverageState): string[] {
-    const withTests = new Set(state.testsWritten.keys());
-    return [...state.nodes.values()]
-        .filter((node) => node.status !== "tested" || !withTests.has(node.id))
-        .map((node) => (node.routePath != null ? `${node.name} (${node.routePath})` : node.name))
-        .sort();
+function untestedPages(state: CoverageState): string[] {
+    const coveredRoots = new Set<string>();
+    for (const [nodeId, paths] of state.testsWritten) {
+        if (paths.length > 0) coveredRoots.add(pageRootOf(state, nodeId));
+    }
+
+    const roots = new Set<string>();
+    for (const node of state.nodes.values()) roots.add(pageRootOf(state, node.id));
+
+    const gaps: string[] = [];
+    for (const rootId of roots) {
+        if (coveredRoots.has(rootId)) continue;
+        const node = state.nodes.get(rootId);
+        const name = node?.name ?? rootId;
+        gaps.push(node?.routePath != null ? `${name} (${node.routePath})` : name);
+    }
+
+    return gaps.sort();
 }
 
 /** A gap section, or nothing at all when there is no gap to report. */
