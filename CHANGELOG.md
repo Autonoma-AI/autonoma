@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.260820.3](https://github.com/Autonoma-AI/agent/compare/v1.260820.2...v1.260820.3) (2026-08-20)
+
+
+### Features
+
+* **analysis:** replace the PR-comment handoff with a FIX IT page ([#2636](https://github.com/Autonoma-AI/agent/issues/2636)) ([9e95e01](https://github.com/Autonoma-AI/agent/commit/9e95e0131019542b47b2c924ea52266c9ed124e2))
+* **ui:** show a preview build's real AWS cost alongside its billed credits ([#2694](https://github.com/Autonoma-AI/agent/issues/2694)) ([ab4fd06](https://github.com/Autonoma-AI/agent/commit/ab4fd0646eaab05ee3cd15cb3366af25cc0fbfbb))
+
+
+### Bug Fixes
+
+* **platform:** sync api-env-file into the cronjob namespace for the reaper ([#2704](https://github.com/Autonoma-AI/agent/issues/2704)) ([2fdd812](https://github.com/Autonoma-AI/agent/commit/2fdd8120727cd071f5772f3c87db0e6662339610))
+
 ## [1.260820.2](https://github.com/Autonoma-AI/agent/compare/v1.260820.1...v1.260820.2) (2026-08-20)
 
 
