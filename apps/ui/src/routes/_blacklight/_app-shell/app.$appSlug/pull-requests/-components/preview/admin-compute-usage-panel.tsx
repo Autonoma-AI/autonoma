@@ -1,7 +1,7 @@
 import { Badge, Button, Input, Skeleton } from "@autonoma/blacklight";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CoinsIcon } from "@phosphor-icons/react/Coins";
-import { formatRelativeTime } from "lib/format";
+import { formatMicrodollars, formatRelativeTime } from "lib/format";
 import {
   useAdminComputePricingReference,
   useAdminEnvironmentComputeUsage,
@@ -55,6 +55,7 @@ export function AdminComputeUsagePanel({
               count={data.build.buildCount}
               countLabel="app builds"
               credits={data.build.credits}
+              realCostUsdMicrodollars={data.build.realCostUsdMicrodollars}
             />
             <ComputeUsageRow
               label="Running"
@@ -88,6 +89,7 @@ function ComputeUsageRow({
   count,
   countLabel,
   credits,
+  realCostUsdMicrodollars,
 }: {
   label: string;
   vcpuSeconds: number;
@@ -95,6 +97,7 @@ function ComputeUsageRow({
   count: number;
   countLabel: string;
   credits: number;
+  realCostUsdMicrodollars?: number;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border-dim px-4 py-2 last:border-b-0">
@@ -104,6 +107,11 @@ function ComputeUsageRow({
       </span>
       <span className="font-mono text-2xs text-text-secondary">{vcpuSeconds.toFixed(2)} vCPU-s</span>
       <span className="font-mono text-2xs text-text-secondary">{gbSeconds.toFixed(2)} GB-s</span>
+      {realCostUsdMicrodollars != null && (
+        <span className="font-mono text-2xs text-text-secondary" title="Real AWS cost, decoupled from the billed rate">
+          {formatMicrodollars(realCostUsdMicrodollars)} real cost
+        </span>
+      )}
       <span className="ml-auto font-mono text-xs text-text-primary">{credits.toFixed(4)} credits</span>
     </div>
   );

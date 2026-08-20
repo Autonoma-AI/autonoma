@@ -142,7 +142,7 @@ const PRICING_REFERENCE = [
 
 /** Metered compute for the environment, priced at a live (non-zero) rate. */
 const COMPUTE_USAGE = {
-  build: { vcpuSeconds: 167.78, gbSeconds: 671.12, buildCount: 2, credits: 2.4235 },
+  build: { vcpuSeconds: 167.78, gbSeconds: 671.12, buildCount: 2, credits: 2.4235, realCostUsdMicrodollars: 1_614 },
   running: { vcpuSeconds: 1843.2, gbSeconds: 7372.8, windowCount: 4, credits: 26.6222 },
   // The org that OWNS the environment - what the rate form writes back to, deliberately not
   // whichever org the viewing admin happens to be switched into.
@@ -235,7 +235,13 @@ export const AdminEmpty: Story = {
               branchAiCost: { totalCalls: 0, totalCostMicrodollars: 0, byTag: [] },
               environmentComputeUsage: {
                 ...COMPUTE_USAGE,
-                build: { vcpuSeconds: 0, gbSeconds: 0, buildCount: 0, credits: 0 },
+                build: {
+                  vcpuSeconds: 0,
+                  gbSeconds: 0,
+                  buildCount: 0,
+                  credits: 0,
+                  realCostUsdMicrodollars: undefined,
+                },
                 running: { vcpuSeconds: 0, gbSeconds: 0, windowCount: 0, credits: 0 },
               },
             },

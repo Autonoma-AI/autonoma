@@ -36,7 +36,19 @@ function mergeByTag(tags: readonly BranchAiCostTag[]): BranchAiCostTag[] {
 }
 
 export interface EnvironmentComputeUsage {
-    build: { vcpuSeconds: number; gbSeconds: number; buildCount: number; credits: number };
+    build: {
+        vcpuSeconds: number;
+        gbSeconds: number;
+        buildCount: number;
+        credits: number;
+        /**
+         * The real USD cost of these builds' actual instances (spot's live price, or the stable
+         * on-demand price), decoupled from `credits` above - which is priced at the org's
+         * deliberately-fixed `BillingPricing` rate, not what AWS actually charged. Undefined when
+         * no build in the window has a recorded real cost yet.
+         */
+        realCostUsdMicrodollars: number | undefined;
+    };
     running: { vcpuSeconds: number; gbSeconds: number; windowCount: number; credits: number };
     /**
      * The org that OWNS this environment, and whose rates the two below are read from - not
@@ -120,7 +132,7 @@ export class UsageService extends Service {
             this.db.previewkitAppBuildUsage.aggregate({
                 where: { appBuild: { build: { environmentId } } },
                 _count: { _all: true },
-                _sum: { vcpuSeconds: true, gbSeconds: true },
+                _sum: { vcpuSeconds: true, gbSeconds: true, realCostUsdMicrodollars: true },
             }),
             this.db.previewkitUsageWindow.aggregate({
                 where: { environmentId },
@@ -147,6 +159,7 @@ export class UsageService extends Service {
                 gbSeconds: buildGbSeconds,
                 buildCount: buildUsage._count._all,
                 credits: computePreviewUsageCost(buildVcpuSeconds, buildGbSeconds, pricing),
+                realCostUsdMicrodollars: buildUsage._sum.realCostUsdMicrodollars ?? undefined,
             },
             running: {
                 vcpuSeconds: runningVcpuSeconds,
