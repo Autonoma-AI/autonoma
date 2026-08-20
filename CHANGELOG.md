@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.260820.2](https://github.com/Autonoma-AI/agent/compare/v1.260820.1...v1.260820.2) (2026-08-20)
+
+
+### Features
+
+* **previewkit:** make container size a tier instead of a free string ([#2677](https://github.com/Autonoma-AI/agent/issues/2677)) ([656a2a2](https://github.com/Autonoma-AI/agent/commit/656a2a2817e73b38cb2b66008cdb7b967b1c518a))
+
+
+### Bug Fixes
+
+* **platform:** apply preview-environment-reaper cronjob in deploy pipeline ([#2700](https://github.com/Autonoma-AI/agent/issues/2700)) ([a7b2b40](https://github.com/Autonoma-AI/agent/commit/a7b2b40f03d46f82242bf27e2ee04dc219ea4c21))
+* **previewkit:** key the environment upsert on (repo, PR), not namespace ([#2695](https://github.com/Autonoma-AI/agent/issues/2695)) ([1bde4e1](https://github.com/Autonoma-AI/agent/commit/1bde4e148bae8caf2e295d2bbe2fe81cb68a9878))
+
 ## [1.260820.1](https://github.com/Autonoma-AI/agent/compare/v1.260819.3...v1.260820.1) (2026-08-20)
 
 
