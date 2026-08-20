@@ -26,7 +26,6 @@ const savedConfig = previewConfigSchema.parse({
       path: ".",
       port: 3000,
       primary: true,
-      health_check: "/api/health",
       build: {
         framework: "runtime",
         runtime: "node",

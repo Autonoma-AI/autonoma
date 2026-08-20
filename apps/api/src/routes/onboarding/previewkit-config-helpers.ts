@@ -66,7 +66,6 @@ export function defaultPreviewkitConfig(applicationName: string | undefined, rep
                 path: ".",
                 port: 3000,
                 primary: true,
-                health_check: "/",
                 build: {
                     framework: "runtime",
                     runtime: STARTER_RUNTIME.id,

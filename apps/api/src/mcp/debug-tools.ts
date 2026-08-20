@@ -65,7 +65,7 @@ Recommended flow when a PREVIEW fails to build or deploy (for a test or app fail
 5. Call get_secret_status(repoFullName) to see the full env-var surface per app: topology connections (with their template values) and secret-backed vars (declared build secrets + registered runtime secrets), including which declared build secrets are missing. Secret VALUES are never returned - only presence and masked length.
 6. Apply the fix. Three kinds:
    - A missing secret VALUE (an API key, token, password): call set_secret(repoFullName, prNumber, app, key, value). It stores the value and rebuilds or restarts the service automatically.
-   - How ONE existing service is built or wired (build path, Dockerfile, port, health check, which keys are injected at build, topology connections): call edit_previewkit_config(repoFullName, prNumber, app, ...the fields to change). It saves the change and rebuilds the service.
+   - How ONE existing service is built or wired (build path, Dockerfile, port, which keys are injected at build, topology connections): call edit_previewkit_config(repoFullName, prNumber, app, ...the fields to change). It saves the change and rebuilds the service.
    - The SHAPE of the preview (add or remove an app, add or remove a service like a database or a redis cache): call get_config(repoFullName) to read the full document, edit it, and send it back with apply_config(repoFullName, prNumber, document). It redeploys the environment.
    For anything in your source (code, a committed Dockerfile), edit this repo and push - Autonoma re-runs on the new commit.
 
@@ -578,7 +578,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
             title: "Edit the preview config",
             description:
                 "Change the STRUCTURAL preview config for one service: its build `path`, `dockerfile`, `port`, " +
-                "`healthCheck`, the env-var keys injected at build time (`buildSecrets`), or its topology " +
+                "the env-var keys injected at build time (`buildSecrets`), or its topology " +
                 '`connections` (non-secret env wired to other services - values are templates like "{{db.url}}"). ' +
                 "Only the fields you pass are changed; the rest are kept. It never sets a secret VALUE - use " +
                 "set_secret for an API key, token, or password.\n\n" +
@@ -599,7 +599,6 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 path: z.string().min(1).max(1024).optional(),
                 dockerfile: z.string().min(1).max(1024).optional(),
                 port: z.number().int().positive().max(65535).optional(),
-                healthCheck: z.string().min(1).max(1024).optional(),
                 buildSecrets: z.array(z.string().min(1).max(255)).max(100).optional(),
                 connections: z
                     .array(
@@ -617,7 +616,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
         },
         async (input) =>
             analytics.track("edit_previewkit_config", async () => {
-                const { prNumber, app, path, dockerfile, port, healthCheck, buildSecrets, connections, apply } = input;
+                const { prNumber, app, path, dockerfile, port, buildSecrets, connections, apply } = input;
                 logger.info("edit_previewkit_config", {
                     extra: { target: describeTarget(input), prNumber, app, apply },
                 });
@@ -628,7 +627,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                         repoFullName,
                         prNumber,
                         appName: app,
-                        patch: { path, dockerfile, port, healthCheck, buildSecrets, connections },
+                        patch: { path, dockerfile, port, buildSecrets, connections },
                         apply: apply ?? true,
                         organizationId,
                     });

@@ -41,7 +41,6 @@ describe("previewConfigSchema", () => {
                         API_URL: "http://{{api.host}}:{{api.port}}",
                         DATABASE_URL: "postgresql://preview:preview@{{db.host}}:5432/preview",
                     },
-                    health_check: "/health",
                 },
                 {
                     name: "api",

@@ -66,7 +66,6 @@ apps:
       connections:
           - key: API_URL
             value: "{{api.url}}"
-      health_check: /health
 
     - name: api
       repository: acme/backend # a multirepo dependency: any repo other than the Application's own
@@ -78,7 +77,6 @@ apps:
             value: "{{db.url}}"
           - key: REDIS_URL
             value: "{{cache.url}}"
-      health_check: /health
       # API keys and other typed values live in the app's secret bundle, not here.
 
 services:
@@ -132,7 +130,6 @@ branch_convention:
 | `build_secrets` | No       | `[]`    | Secret keys to also expose at build time as Docker build args (e.g. `NEXT_PUBLIC_*`); each must already exist in the app's secret bundle                                                                                                                                                                                                       |
 | `connections`   | No       | `[]`    | Non-secret variables resolved at deploy time. Each is `{ key, value, build_time? }` where `value` is a template mixing literal text and `{{name.property}}` tokens (e.g. `DATABASE_URL` -> `{{db.url}}`). See [Connections](#connections)                                                                                                      |
 | `command`       | No       |         | Override the container command                                                                                                                                                                                                                                                                                                                 |
-| `health_check`  | No       |         | HTTP path for readiness/liveness probes                                                                                                                                                                                                                                                                                                        |
 | `primary`       | No       |         | Marks this app as the environment's primary URL                                                                                                                                                                                                                                                                                                |
 | `sdk_implemented` | No     |         | Marks the app that serves the Autonoma SDK handler, so scenario up/down is sent to its preview URL. At most one app. Independent of `primary`: a full-stack app sets both, a split front/API topology marks the frontend `primary` and the API `sdk_implemented`. May be declared on a connected repo's app (the merged topology is searched), while the fallback stays this repo's primary app. Unset falls back to the primary app                        |
 | `sdk_path`      | No       |         | Path the SDK handler is mounted at on this app, when it is not the conventional `/api/autonoma` - e.g. `/autonoma`. Absolute, no host, no query. Read off whichever app hosts the handler (declared, else the primary), and applied wherever an endpoint is resolved, so changing it takes effect on the next up with no redeploy. Leaving it unset is NOT the same as setting `/api/autonoma`: unset means the config has no opinion, which is what keeps an endpoint registered by hand at another path from being rewritten |

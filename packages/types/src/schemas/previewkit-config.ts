@@ -700,7 +700,6 @@ function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allow
             // All user-typed values are secrets (AWS), so they never appear here.
             connections: z.array(connectionSchema).default([]),
             command: z.string().optional(),
-            health_check: z.string().optional(),
             primary: z.boolean().optional(),
             // This app serves the Environment Factory handler, so scenario up/down
             // calls go to its preview URL. Independent of `primary`: a full-stack app

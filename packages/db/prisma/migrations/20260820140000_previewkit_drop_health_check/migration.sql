@@ -1,0 +1,19 @@
+-- Removes the configurable health-check path. Readiness is now a TCP check on the
+-- port an app already declares, so there is nothing left to configure.
+--
+-- Why it went: 170 of the ~227 apps that set a path set it to `/`, which says
+-- nothing a socket check does not, while 46 set nothing and therefore got no probe
+-- at all - counted Ready the instant their container started. A field most people
+-- filled in meaninglessly, some got wrong, and all had to keep correct as their
+-- routes moved was worse than one sensible rule.
+--
+-- The liveness probe went with it, and that is the bigger change. Aimed at
+-- someone else's application it cannot tell a slow boot from a broken one, and the
+-- restarts it caused looked to the user like a preview that never came up.
+--
+-- APPLY AFTER DEPLOYING, not before - the reverse of the recent previewkit
+-- migrations. The release being replaced still SELECTs this column, so dropping it
+-- first breaks every config read by a pod that has not rolled yet. Nothing writes
+-- it once the new code is out, so the column is only stale, never wrong, in the
+-- window between.
+ALTER TABLE "previewkit_app" DROP COLUMN "health_check";

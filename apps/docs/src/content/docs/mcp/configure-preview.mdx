@@ -118,7 +118,7 @@ Everything after that depends on the path.
     Deploys do not queue: asking for a second one cancels the first. A first build takes minutes - impact analysis, then a build machine, then your images - and the honest reaction to that is to keep waiting, so `trigger_deploy` declines while a deploy is already running and hands back that deploy's live status instead of restarting the clock. The agent can still supersede deliberately with `force`, which is the right call once it has pushed a fix the running build predates. Your own **Redeploy** button in the UI always supersedes: you are looking at the deploy in flight when you press it.
 
 5. **Watch and iterate** - `wait_for_deploy` blocks until the deploy settles, and `get_session_status` returns the deploy status, the preview URL, diagnostics, and a `recentLogs` tail (build logs on failure, app logs when ready). The agent waits, reads the diagnostics and logs if the preview fails, fixes the config, and deploys again - until it comes up.
-6. **Verify beyond the health check** - a ready preview can still be broken (the health-check page renders while API routes crash). The agent is instructed to exercise the main flow against the preview URL and then read the app's runtime logs in `recentLogs` - not just declare done because the status says ready.
+6. **Verify beyond readiness** - a ready preview can still be broken. Readiness is a TCP check on the app's port, so it means the process is accepting connections, not that it serves anything correctly. The agent is instructed to exercise the main flow against the preview URL and then read the app's runtime logs in `recentLogs` - not just declare done because the status says ready.
 
 ### If your own pipeline builds it, on Vercel
 

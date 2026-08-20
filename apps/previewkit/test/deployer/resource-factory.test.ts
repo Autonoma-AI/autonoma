@@ -199,17 +199,29 @@ describe("buildAppDeployment", () => {
         expect(container.command).toEqual(["/bin/sh", "-c", "npm run worker"]);
     });
 
-    it("sets health check probes when provided", () => {
-        const dep = buildAppDeployment({ ...baseOpts, app: { ...baseApp, health_check: "/health" } });
-        const container = dep.spec!.template.spec!.containers[0]!;
-        expect(container.readinessProbe?.httpGet?.path).toBe("/health");
-        expect(container.livenessProbe?.httpGet?.path).toBe("/health");
-    });
-
-    it("omits probes when no health check", () => {
+    /**
+     * Every app gets the same socket probe on the port it declares - no path to
+     * configure and none to keep correct. An app that configured nothing used to
+     * get no probe at all and counted as Ready the moment its container started,
+     * so this is strictly stricter for those.
+     */
+    it("gives every app a TCP readiness probe on its port", () => {
         const dep = buildAppDeployment(baseOpts);
         const container = dep.spec!.template.spec!.containers[0]!;
-        expect(container.readinessProbe).toBeUndefined();
+
+        expect(container.readinessProbe?.tcpSocket?.port).toBe(baseApp.port);
+        expect(container.readinessProbe?.httpGet).toBeUndefined();
+    });
+
+    /**
+     * Deliberately no liveness probe. Aimed at someone else's application it
+     * cannot tell a slow boot from a broken one, and the restarts it causes look
+     * to the user like a preview that simply never comes up.
+     */
+    it("never gives an app a liveness probe", () => {
+        const dep = buildAppDeployment(baseOpts);
+        const container = dep.spec!.template.spec!.containers[0]!;
+
         expect(container.livenessProbe).toBeUndefined();
     });
 

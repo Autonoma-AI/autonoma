@@ -168,7 +168,6 @@ export interface AppDraft {
     entrypoint: string;
     port: string;
     command: string;
-    healthCheck: string;
     primary: boolean;
     /**
      * This app serves the Environment Factory handler, so scenario up/down calls
@@ -393,7 +392,6 @@ export function emptyAppDraft(repository: string, origin: AppDraftOrigin = "manu
         entrypoint: defaults.defaultEntrypoint,
         port: "",
         command: "",
-        healthCheck: "/",
         primary: false,
         sdkImplemented: false,
         sdkPath: "",
@@ -572,7 +570,6 @@ function appDraftFromConfig(app: PreviewConfig["apps"][number], origin: AppDraft
     draft.dockerfile = app.dockerfile ?? "";
     draft.port = String(app.port);
     draft.command = app.command ?? "";
-    draft.healthCheck = app.health_check ?? "";
     draft.primary = app.primary === true;
     draft.sdkImplemented = app.sdk_implemented === true;
     draft.sdkPath = app.sdk_path ?? "";
@@ -983,7 +980,6 @@ function compileApp(app: AppDraft): Record<string, unknown> {
     // image CMD via `build.entrypoint`), so the legacy `command` override is not
     // emitted from this form.
     if (app.buildMode !== "runtime" && app.command.trim() !== "") compiled.command = app.command.trim();
-    if (app.healthCheck.trim() !== "") compiled.health_check = app.healthCheck.trim();
     if (app.primary) compiled.primary = true;
     if (app.sdkImplemented) compiled.sdk_implemented = true;
     if (app.sdkPath.trim() !== "") compiled.sdk_path = app.sdkPath.trim();
@@ -1226,7 +1222,6 @@ export const APP_DRAFT_FIELDS = [
     "entrypoint",
     "port",
     "command",
-    "healthCheck",
     "primary",
     "sdkImplemented",
     "sdkPath",
@@ -1272,7 +1267,6 @@ const APP_FIELD_LOCATIONS: Record<AppDraftField, { label: string; tab: string }>
     entrypoint: { label: "Entrypoint", tab: "Overview" },
     port: { label: "Port", tab: "Overview" },
     command: { label: "Start command", tab: "Overview" },
-    healthCheck: { label: "Health check", tab: "Overview" },
     primary: { label: "Frontend role", tab: "Overview" },
     sdkImplemented: { label: "SDK role", tab: "Overview" },
     sdkPath: { label: "SDK path", tab: "Overview" },
@@ -1381,7 +1375,6 @@ const APP_FIELD_BY_DOCUMENT_KEY: Record<string, AppDraftField> = {
     dockerfile: "dockerfile",
     port: "port",
     command: "command",
-    health_check: "healthCheck",
     primary: "primary",
     sdk_implemented: "sdkImplemented",
     sdk_path: "sdkPath",
@@ -1415,7 +1408,7 @@ function resolveAppField(path: Array<string | number>): AppDraftField | undefine
     return APP_FIELD_BY_DOCUMENT_KEY[key];
 }
 
-/** Maps a document field key (`health_check`) to its draft field (`healthCheck`), for focus deep-links. */
+/** Maps a document field key (`build_context`) to its draft field (`buildContext`), for focus deep-links. */
 export function appFieldFromDocumentKey(key: string): AppDraftField | undefined {
     return APP_FIELD_BY_DOCUMENT_KEY[key];
 }

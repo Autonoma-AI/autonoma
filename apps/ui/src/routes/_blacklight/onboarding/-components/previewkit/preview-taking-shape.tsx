@@ -190,7 +190,6 @@ function buildCards(document: ReturnType<typeof usePreviewkitConfig>["data"]["do
       { label: "name", value: app.name },
       { label: "port", value: String(app.port) },
     ];
-    if (app.health_check != null) identity.push({ label: "health check", value: app.health_check });
 
     cards.push({
       id: `app:${app.name}`,

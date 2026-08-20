@@ -24,7 +24,6 @@ const configDocument = previewConfigSchema.parse({
       dockerfile: "Dockerfile",
       port: 3000,
       primary: true,
-      health_check: "/login",
       build_secrets: ["STRIPE_SECRET_KEY"],
       connections: [{ key: "DATABASE_URL", value: "{{db.url}}" }],
     },
@@ -33,7 +32,6 @@ const configDocument = previewConfigSchema.parse({
       repository: "acme/storefront",
       dockerfile: "api/Dockerfile",
       port: 4000,
-      health_check: "/health",
       build_secrets: [],
       connections: [
         { key: "DATABASE_URL", value: "{{db.url}}" },

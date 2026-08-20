@@ -223,24 +223,29 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
                                     memory: app.resources.memory,
                                 },
                             },
-                            ...(app.health_check && {
-                                readinessProbe: {
-                                    httpGet: {
-                                        path: app.health_check,
-                                        port: app.port,
-                                    },
-                                    initialDelaySeconds: 10,
-                                    periodSeconds: 5,
-                                },
-                                livenessProbe: {
-                                    httpGet: {
-                                        path: app.health_check,
-                                        port: app.port,
-                                    },
-                                    initialDelaySeconds: 15,
-                                    periodSeconds: 10,
-                                },
-                            }),
+                            // Every app gets the same probe, on the port it already
+                            // declares. A health path was one more thing to configure,
+                            // one more thing to get wrong, and one more thing to keep
+                            // correct as an app's routes move - and 170 of the apps
+                            // that set one just pointed it at `/`, which says nothing a
+                            // socket check does not. An app that set nothing got no
+                            // probe at all and was called Ready the instant its
+                            // container started, so this is strictly better for those.
+                            //
+                            // READINESS ONLY, no liveness. A liveness probe aimed at
+                            // someone else's application restarts it, and a slow boot
+                            // is indistinguishable from a broken one - the fleet was
+                            // carrying restart loops from exactly that. Readiness gates
+                            // traffic without killing anything.
+                            //
+                            // A socket that accepts is not the same as an app that can
+                            // serve, so callers must tolerate a first request landing
+                            // early: see `withColdStartRetry` in `@autonoma/scenario`.
+                            readinessProbe: {
+                                tcpSocket: { port: app.port },
+                                initialDelaySeconds: 5,
+                                periodSeconds: 5,
+                            },
                         },
                     ],
                 },

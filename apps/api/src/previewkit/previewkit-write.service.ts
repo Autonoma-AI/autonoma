@@ -18,7 +18,6 @@ export interface AppConfigPatch {
     path?: string;
     dockerfile?: string;
     port?: number;
-    healthCheck?: string;
     /** Env-var keys injected at build time (Docker build args). Replaces the app's `build_secrets` list. */
     buildSecrets?: string[];
     /** Topology-wired env (non-secret template values). Replaces the app's `connections` list. */
@@ -74,7 +73,7 @@ export interface ApplyConfigResult {
  * needed. The two are deliberately separate concerns so the agent never has to
  * reason about overlap - a secret value (API key / token / password) goes through
  * {@link setSecret} (stored in AWS, never returned); how the app is built or wired
- * (path, Dockerfile, port, health check, which keys are injected at build,
+ * (path, Dockerfile, port, which keys are injected at build,
  * topology connections) goes through {@link editConfig} (saves the app's config).
  *
  * setSecret picks rebuild-vs-restart by whether the key is a declared build secret;
@@ -253,7 +252,6 @@ function applyAppPatch(app: PreviewConfig["apps"][number], patch: AppConfigPatch
     if (patch.path !== undefined) next.path = patch.path;
     if (patch.dockerfile !== undefined) next.dockerfile = patch.dockerfile;
     if (patch.port !== undefined) next.port = patch.port;
-    if (patch.healthCheck !== undefined) next.health_check = patch.healthCheck;
     if (patch.buildSecrets !== undefined) next.build_secrets = patch.buildSecrets;
     if (patch.connections !== undefined) {
         next.connections = patch.connections.map((connection) => ({

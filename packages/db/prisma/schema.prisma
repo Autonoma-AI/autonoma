@@ -2325,7 +2325,6 @@ model PreviewkitApp {
   buildSecrets String[] @default([]) @map("build_secrets")
   port         Int
   command      String?
-  healthCheck  String?  @map("health_check")
 
   // Tri-state: the config schema allows an explicit `false`, so null means the
   // field is absent rather than false.

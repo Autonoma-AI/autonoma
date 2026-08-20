@@ -527,7 +527,13 @@ export class OnboardingSdkCapabilityService {
         }
 
         const subject = new DryRunSubject(this.db, applicationId);
-        const instance = await this.scenarioManager.up(subject, scenarioId, { sdkOptions: DRY_RUN_SDK_OPTIONS });
+        // A preview is now gated by a socket check rather than an HTTP one, so the
+        // first call can land on an app that accepts connections but is still
+        // booting. Retrying the cold-start signatures is what absorbs that.
+        const instance = await this.scenarioManager.up(subject, scenarioId, {
+            sdkOptions: DRY_RUN_SDK_OPTIONS,
+            coldStartRetry: true,
+        });
         if (instance.status === "UP_FAILED") {
             return { success: false, phase: "up", error: instance.lastError };
         }

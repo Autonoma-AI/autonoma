@@ -2891,7 +2891,6 @@ function validPreviewkitConfig() {
                 path: ".",
                 port: 3000,
                 primary: true,
-                health_check: "/",
             },
         ],
         services: [{ name: "db", recipe: "postgres", version: "16" }],

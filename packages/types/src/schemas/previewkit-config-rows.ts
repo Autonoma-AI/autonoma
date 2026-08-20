@@ -74,7 +74,6 @@ export interface PreviewkitConfigAppRow {
     buildSecrets: string[];
     port: number;
     command: string | null;
-    healthCheck: string | null;
     primary: boolean | null;
     sdkImplemented: boolean | null;
     sdkPath: string | null;
@@ -149,7 +148,6 @@ export interface PreviewkitConfigAppValues {
     buildSecrets: string[];
     port: number;
     command?: string;
-    healthCheck?: string;
     primary?: boolean;
     sdkImplemented?: boolean;
     sdkPath?: string;
@@ -276,7 +274,6 @@ function appFromRow(app: PreviewkitConfigAppRow): Record<string, unknown> {
             build_time: connection.buildTime,
         })),
         command: app.command ?? undefined,
-        health_check: app.healthCheck ?? undefined,
         primary: app.primary ?? undefined,
         sdk_implemented: app.sdkImplemented ?? undefined,
         sdk_path: app.sdkPath ?? undefined,
@@ -350,7 +347,6 @@ function appValues(app: PreviewConfig["apps"][number], position: number): Previe
         buildSecrets: app.build_secrets,
         port: app.port,
         command: app.command,
-        healthCheck: app.health_check,
         primary: app.primary,
         sdkImplemented: app.sdk_implemented,
         sdkPath: app.sdk_path,
