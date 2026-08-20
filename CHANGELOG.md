@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.260820.1](https://github.com/Autonoma-AI/agent/compare/v1.260819.3...v1.260820.1) (2026-08-20)
+
+
+### Features
+
+* **analysis:** re-verify open environment and scenario issues, not just bugs ([#2654](https://github.com/Autonoma-AI/agent/issues/2654)) ([1e23b46](https://github.com/Autonoma-AI/agent/commit/1e23b46fb0f470ca33c9f26af32708084349621b))
+* **billing:** deduct real credits for AI cost and previewkit build/running usage ([#2471](https://github.com/Autonoma-AI/agent/issues/2471)) ([2c949a2](https://github.com/Autonoma-AI/agent/commit/2c949a2316159819d4a0f56743e139378809b1b2))
+* **platform:** size the warm pools per pool, and raise 8vCPU to 4 ([#2675](https://github.com/Autonoma-AI/agent/issues/2675)) ([00be409](https://github.com/Autonoma-AI/agent/commit/00be409ba12d5c4bb5953c46e7c0118aefed5e13))
+* **previewkit:** reconcile preview environments against the cluster ([#2664](https://github.com/Autonoma-AI/agent/issues/2664)) ([9be703c](https://github.com/Autonoma-AI/agent/commit/9be703ce09cea96c7edd0bee5ecfd7ba0e57d399))
+* **ui:** zero states for the window before the first run ([#2517](https://github.com/Autonoma-AI/agent/issues/2517)) ([e7c8f0d](https://github.com/Autonoma-AI/agent/commit/e7c8f0dc10a946c2bba758c95016cdb957c95785))
+
+
+### Bug Fixes
+
+* **api:** keep wait_for_deploy inside the MCP client's request deadline ([#2672](https://github.com/Autonoma-AI/agent/issues/2672)) ([2336d4c](https://github.com/Autonoma-AI/agent/commit/2336d4c443bb57abb72c6eb9ba04ced51b85861a))
+* **terraform:** drop the dead us-east-2 production cluster from KarpenterControllerRole-production ([#2676](https://github.com/Autonoma-AI/agent/issues/2676)) ([e144856](https://github.com/Autonoma-AI/agent/commit/e1448566e46471e2a899ff1a6e28d8005fbfe71c))
+* **terraform:** remove dev.api.autonoma.app aliases for the deleted quarita API Gateway ([#2673](https://github.com/Autonoma-AI/agent/issues/2673)) ([9999768](https://github.com/Autonoma-AI/agent/commit/9999768bcf23e9f8126a2f41207cb474ee3889fe))
+
 ## [1.260819.3](https://github.com/Autonoma-AI/agent/compare/v1.260819.2...v1.260819.3) (2026-08-19)
 
 
