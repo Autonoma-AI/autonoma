@@ -42,8 +42,7 @@ function store(values: PreviewkitConfigRowValues): PreviewkitConfigRows {
             primary: app.primary ?? null,
             sdkImplemented: app.sdkImplemented ?? null,
             sdkPath: app.sdkPath ?? null,
-            resourcesCpu: app.resourcesCpu,
-            resourcesMemory: app.resourcesMemory,
+            resourcesTier: app.resourcesTier,
             dependsOn: app.dependsOn,
             connections: app.connections,
         })),
@@ -53,8 +52,7 @@ function store(values: PreviewkitConfigRowValues): PreviewkitConfigRows {
             recipe: service.recipe,
             version: service.version ?? null,
             options: service.options,
-            resourcesCpu: service.resourcesCpu,
-            resourcesMemory: service.resourcesMemory,
+            resourcesTier: service.resourcesTier,
             s3: service.s3 ?? null,
             sqs: service.sqs ?? null,
             sns: service.sns ?? null,
@@ -231,15 +229,28 @@ describe("preview config rows round trip", () => {
         expect(config.hooks.post_deploy.map((step) => step.command)).toEqual(["pnpm seed", "pnpm warm"]);
     });
 
-    it("preserves resource overrides, which only a trusted read honors", () => {
-        const config = expectRoundTrip({
+    /**
+     * Raw quantities no longer survive as themselves - a size is a tier now, and the
+     * row stores which one. A request nothing covers takes the largest tier, because
+     * the alternative is refusing to read a config that is already deployed.
+     */
+    it("snaps a resource override onto a tier and stays there", () => {
+        const document = {
             version: 2,
             apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { cpu: "2", memory: "4Gi" } }],
             services: [{ name: "db", recipe: "postgres", resources: { cpu: "1", memory: "2Gi" } }],
-        });
+        };
 
-        expect(config.apps[0]?.resources).toEqual({ cpu: "2", memory: "4Gi" });
-        expect(config.services[0]?.resources).toEqual({ cpu: "1", memory: "2Gi" });
+        const config = expectRoundTrip(document);
+
+        expect(config.apps[0]?.resources).toEqual({ tier: "xlarge", cpu: "500m", memory: "2Gi" });
+        expect(config.services[0]?.resources).toEqual({ tier: "large", cpu: "500m", memory: "2Gi" });
+
+        // The composed document names the tier, so reading it back does not snap
+        // again. Without this the size would creep on every save.
+        const again = roundTrip(documentFromPreviewkitConfigRows(store(previewkitConfigRowValues(config))));
+        expect(again.apps[0]?.resources).toEqual(config.apps[0]?.resources);
+        expect(again.services[0]?.resources).toEqual(config.services[0]?.resources);
     });
 
     it("preserves a retired framework preset, which stored documents may still carry", () => {

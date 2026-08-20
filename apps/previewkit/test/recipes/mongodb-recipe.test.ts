@@ -7,7 +7,7 @@ const baseService = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => (
     recipe: "mongodb",
     env: {},
     options: {},
-    resources: { cpu: "250m", memory: "512Mi" },
+    resources: { tier: "standard", cpu: "250m", memory: "512Mi" },
     ...overrides,
 });
 
@@ -138,9 +138,9 @@ describe("MongoDbRecipe", () => {
     });
 
     it("requests and limits the same memory, and never limits cpu (throttling is the expensive failure)", () => {
-        const result = recipe.generate(baseService({ resources: { cpu: "500m", memory: "1Gi" } }), "ns");
+        const result = recipe.generate(baseService({ resources: { tier: "large", cpu: "500m", memory: "2Gi" } }), "ns");
         const container = result.statefulSets[0]?.spec?.template?.spec?.containers?.[0];
-        expect(container?.resources?.requests).toEqual({ cpu: "500m", memory: "1Gi" });
-        expect(container?.resources?.limits).toEqual({ memory: "1Gi" });
+        expect(container?.resources?.requests).toEqual({ cpu: "500m", memory: "2Gi" });
+        expect(container?.resources?.limits).toEqual({ memory: "2Gi" });
     });
 });

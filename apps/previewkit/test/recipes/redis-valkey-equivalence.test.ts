@@ -7,7 +7,7 @@ const baseService = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => (
     name: "cache",
     recipe: "redis",
     options: {},
-    resources: { cpu: "250m", memory: "512Mi" },
+    resources: { tier: "standard", cpu: "250m", memory: "512Mi" },
     ...overrides,
 });
 

@@ -6,6 +6,14 @@ import type {
     PreviewConfig,
 } from "./previewkit-config";
 import { PREVIEW_CONFIG_VERSION } from "./previewkit-config";
+import {
+    APP_RESOURCE_TIERS,
+    appResourceTierOrDefault,
+    type AppResourceTier,
+    SERVICE_RESOURCE_TIERS,
+    serviceResourceTierOrDefault,
+    type ServiceResourceTier,
+} from "./previewkit-resource-tiers";
 
 /**
  * The codec between a preview config document and the normalized rows that store
@@ -70,8 +78,7 @@ export interface PreviewkitConfigAppRow {
     primary: boolean | null;
     sdkImplemented: boolean | null;
     sdkPath: string | null;
-    resourcesCpu: string;
-    resourcesMemory: string;
+    resourcesTier: AppResourceTier;
     dependsOn: string[];
     connections: PreviewkitConfigConnectionRow[];
 }
@@ -89,8 +96,7 @@ export interface PreviewkitConfigServiceRow {
     recipe: string;
     version: string | null;
     options: unknown;
-    resourcesCpu: string;
-    resourcesMemory: string;
+    resourcesTier: ServiceResourceTier;
     s3: boolean | null;
     sqs: boolean | null;
     sns: boolean | null;
@@ -147,8 +153,7 @@ export interface PreviewkitConfigAppValues {
     primary?: boolean;
     sdkImplemented?: boolean;
     sdkPath?: string;
-    resourcesCpu: string;
-    resourcesMemory: string;
+    resourcesTier: AppResourceTier;
     dependsOn: string[];
     connections: PreviewkitConfigConnectionValues[];
 }
@@ -166,8 +171,7 @@ export interface PreviewkitConfigServiceValues {
     recipe: string;
     version?: string;
     options: Record<string, unknown>;
-    resourcesCpu: string;
-    resourcesMemory: string;
+    resourcesTier: ServiceResourceTier;
     s3?: boolean;
     sqs?: boolean;
     sns?: boolean;
@@ -276,7 +280,7 @@ function appFromRow(app: PreviewkitConfigAppRow): Record<string, unknown> {
         primary: app.primary ?? undefined,
         sdk_implemented: app.sdkImplemented ?? undefined,
         sdk_path: app.sdkPath ?? undefined,
-        resources: resourcesFromRow(app),
+        resources: appResourcesFromRow(app),
         depends_on: app.dependsOn.length > 0 ? app.dependsOn : undefined,
     };
 }
@@ -292,7 +296,7 @@ function serviceFromRow(service: PreviewkitConfigServiceRow): Record<string, unk
             frequency: task.frequency,
             location: task.location,
         })),
-        resources: resourcesFromRow(service),
+        resources: serviceResourcesFromRow(service),
         s3: service.s3 ?? undefined,
         sqs: service.sqs ?? undefined,
         sns: service.sns ?? undefined,
@@ -323,11 +327,14 @@ function hookStepsFromRows(hooks: PreviewkitConfigHookRow[], group: HookGroupKey
     }));
 }
 
-function resourcesFromRow(row: { resourcesCpu: string; resourcesMemory: string }): ContainerResources {
-    return {
-        cpu: row.resourcesCpu,
-        memory: row.resourcesMemory,
-    };
+function appResourcesFromRow(row: { resourcesTier: string }): ContainerResources {
+    const tier = appResourceTierOrDefault(row.resourcesTier);
+    return { tier, ...APP_RESOURCE_TIERS[tier] };
+}
+
+function serviceResourcesFromRow(row: { resourcesTier: string }): ContainerResources {
+    const tier = serviceResourceTierOrDefault(row.resourcesTier);
+    return { tier, ...SERVICE_RESOURCE_TIERS[tier] };
 }
 
 function appValues(app: PreviewConfig["apps"][number], position: number): PreviewkitConfigAppValues {
@@ -347,8 +354,7 @@ function appValues(app: PreviewConfig["apps"][number], position: number): Previe
         primary: app.primary,
         sdkImplemented: app.sdk_implemented,
         sdkPath: app.sdk_path,
-        resourcesCpu: app.resources.cpu,
-        resourcesMemory: app.resources.memory,
+        resourcesTier: appResourceTierOrDefault(app.resources.tier),
         dependsOn: app.depends_on ?? [],
         connections: app.connections.map((connection, connectionPosition) => ({
             position: connectionPosition,
@@ -366,8 +372,7 @@ function serviceValues(service: PreviewConfig["services"][number], position: num
         recipe: service.recipe,
         version: service.version,
         options: service.options,
-        resourcesCpu: service.resources.cpu,
-        resourcesMemory: service.resources.memory,
+        resourcesTier: serviceResourceTierOrDefault(service.resources.tier),
         s3: service.s3,
         sqs: service.sqs,
         sns: service.sns,

@@ -79,7 +79,7 @@ describe("previewConfigSchema", () => {
         expect(result.repositories).toEqual([]);
         expect(result.branch_convention).toBeUndefined();
         // On the untrusted schema, omitting resources yields the app-tier standard.
-        expect(result.apps[0].resources).toEqual({ cpu: "250m", memory: "1Gi" });
+        expect(result.apps[0].resources).toEqual({ tier: "medium", cpu: "250m", memory: "1Gi" });
     });
 
     describe("repository field", () => {
@@ -173,20 +173,24 @@ describe("previewConfigSchema", () => {
     describe("resources (ignored on the untrusted schema)", () => {
         it("yields the app-tier standard when omitted", () => {
             const result = previewConfigSchema.parse(validConfig);
-            expect(result.apps[0].resources).toEqual({ cpu: "250m", memory: "1Gi" });
+            expect(result.apps[0].resources).toEqual({ tier: "medium", cpu: "250m", memory: "1Gi" });
         });
 
         it("ignores explicit app and service resource input", () => {
             const result = previewConfigSchema.parse({
                 version: 2,
-                apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { cpu: "500m", memory: "2Gi" } }],
+                apps: [
+                    {
+                        name: "web",
+                        repository: "acme/web",
+                        port: 3000,
+                        resources: { tier: "xlarge", cpu: "500m", memory: "2Gi" },
+                    },
+                ],
                 services: [{ name: "db", recipe: "postgres", resources: { cpu: "250m", memory: "2Gi" } }],
             });
-            expect(result.apps[0].resources).toEqual({ cpu: "250m", memory: "1Gi" });
-            expect(result.services[0].resources).toEqual({
-                cpu: "100m",
-                memory: "1Gi",
-            });
+            expect(result.apps[0].resources).toEqual({ tier: "medium", cpu: "250m", memory: "1Gi" });
+            expect(result.services[0].resources).toEqual({ tier: "standard", cpu: "100m", memory: "1Gi" });
         });
 
         /**
@@ -209,7 +213,7 @@ describe("previewConfigSchema", () => {
                 ],
             });
 
-            expect(result.apps[0].resources).toEqual({ cpu: "2", memory: "1Gi" });
+            expect(result.apps[0].resources).toEqual({ tier: "xlarge", cpu: "500m", memory: "2Gi" });
         });
 
         it("still validates a config that sets resources (backward compatibility)", () => {
@@ -224,22 +228,54 @@ describe("previewConfigSchema", () => {
     });
 
     describe("resources (honored for trusted config revisions)", () => {
-        it("honors explicit cpu/memory, using memory for both request and limit", () => {
+        /**
+         * Raw quantities are read as a request for a size, not honored verbatim. They
+         * snap UP to the smallest tier that covers them, so a config written before
+         * tiers keeps at least the headroom it had. Nothing over the top of the ladder
+         * exists to snap to, so it takes the largest rung.
+         */
+        it("snaps explicit cpu/memory up to the tier that covers them", () => {
             const result = trustedPreviewConfigSchema.parse({
                 version: 2,
                 apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { cpu: "2", memory: "4Gi" } }],
                 services: [{ name: "db", recipe: "postgres", resources: { cpu: "1", memory: "2Gi" } }],
             });
-            expect(result.apps[0].resources).toEqual({ cpu: "2", memory: "4Gi" });
-            expect(result.services[0].resources).toEqual({ cpu: "1", memory: "2Gi" });
+            expect(result.apps[0].resources).toEqual({ tier: "xlarge", cpu: "500m", memory: "2Gi" });
+            expect(result.services[0].resources).toEqual({ tier: "large", cpu: "500m", memory: "2Gi" });
         });
 
-        it("falls back to the tier standard for any field the document omits", () => {
+        it("takes a tier by name when the config gives one", () => {
+            const result = trustedPreviewConfigSchema.parse({
+                version: 2,
+                apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { tier: "small" } }],
+                services: [{ name: "db", recipe: "postgres", resources: { tier: "small" } }],
+            });
+            expect(result.apps[0].resources).toEqual({ tier: "small", cpu: "150m", memory: "256Mi" });
+            expect(result.services[0].resources).toEqual({ tier: "small", cpu: "100m", memory: "256Mi" });
+        });
+
+        /**
+         * A name this build does not know is a config from a newer one. Falling back
+         * beats refusing: the deploy path re-parses stored config, so a refusal there
+         * takes down a preview that is already running.
+         */
+        it("falls back to the default tier for a name it does not recognize", () => {
+            const result = trustedPreviewConfigSchema.parse({
+                version: 2,
+                apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { tier: "enormous" } }],
+            });
+            expect(result.apps[0].resources).toEqual({ tier: "medium", cpu: "250m", memory: "1Gi" });
+        });
+
+        it("sizes from whichever quantity the document gives, when it gives only one", () => {
             const result = trustedPreviewConfigSchema.parse({
                 version: 2,
                 apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { cpu: "2" } }],
             });
-            expect(result.apps[0].resources).toEqual({ cpu: "2", memory: "1Gi" });
+
+            // 2 cores is over the top of the ladder, so it lands on the largest rung
+            // rather than on the tier its (absent) memory would have chosen.
+            expect(result.apps[0].resources).toEqual({ tier: "xlarge", cpu: "500m", memory: "2Gi" });
         });
 
         it("yields the standard tier when resources is omitted", () => {
@@ -247,7 +283,7 @@ describe("previewConfigSchema", () => {
                 version: 2,
                 apps: [{ name: "web", repository: "acme/web", port: 3000 }],
             });
-            expect(result.apps[0].resources).toEqual({ cpu: "250m", memory: "1Gi" });
+            expect(result.apps[0].resources).toEqual({ tier: "medium", cpu: "250m", memory: "1Gi" });
         });
 
         it("is idempotent when re-parsing an already-resolved config (deploy round-trip)", () => {

@@ -20,8 +20,8 @@ describe("createPreviewkitDefaults", () => {
     it("exposes the tiered standard resources as platform policy", () => {
         const d = createPreviewkitDefaults(env);
         expect(d.standards.resources).toEqual({
-            app: { cpu: "250m", memory: "1Gi" },
-            service: { cpu: "100m", memory: "1Gi" },
+            app: { tier: "medium", cpu: "250m", memory: "1Gi" },
+            service: { tier: "standard", cpu: "100m", memory: "1Gi" },
         });
         // Same canonical values the schema transforms apply.
         expect(d.standards.resources.app).toEqual(STANDARD_RESOURCES.app);

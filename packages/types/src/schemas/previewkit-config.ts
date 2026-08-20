@@ -8,19 +8,36 @@ import {
     previewkitPresetSpec,
     type PreviewkitPresetSpec,
 } from "./previewkit-presets";
+import {
+    APP_RESOURCE_TIER_NAMES,
+    APP_RESOURCE_TIERS,
+    DEFAULT_APP_RESOURCE_TIER,
+    DEFAULT_SERVICE_RESOURCE_TIER,
+    isAppResourceTier,
+    isServiceResourceTier,
+    SERVICE_RESOURCE_TIER_NAMES,
+    SERVICE_RESOURCE_TIERS,
+    snapToResourceTier,
+} from "./previewkit-resource-tiers";
 import { PREVIEWKIT_RUNTIME_IDS, type PreviewkitRuntime } from "./previewkit-runtimes";
 import { SecretKeySchema } from "./secrets";
 
 export interface ContainerResources {
+    /** The size that was chosen. What `cpu` and `memory` below are derived from. */
+    tier: string;
     /** A request with no limit: capping CPU throttles a container's startup burst. */
     cpu: string;
     /** Both the request and the limit - what a container is promised is what it may use. */
     memory: string;
 }
 
+/**
+ * The tier a container gets when it names none. Both are the size everything was
+ * already running at when tiers arrived, so introducing them moved nothing.
+ */
 export const STANDARD_RESOURCES = {
-    app: { cpu: "250m", memory: "1Gi" },
-    service: { cpu: "100m", memory: "1Gi" },
+    app: { tier: DEFAULT_APP_RESOURCE_TIER, ...APP_RESOURCE_TIERS[DEFAULT_APP_RESOURCE_TIER] },
+    service: { tier: DEFAULT_SERVICE_RESOURCE_TIER, ...SERVICE_RESOURCE_TIERS[DEFAULT_SERVICE_RESOURCE_TIER] },
 } as const;
 
 export type PreviewResourceRole = keyof typeof STANDARD_RESOURCES;
@@ -69,10 +86,12 @@ export const DEFAULT_DEPENDENCY_FALLBACK_BRANCH = "main";
  * field itself - see {@link buildResourcesSchema}.
  */
 const resourcesInput = z
-    .object({
-        cpu: z.string().optional(),
-        memory: z.string().optional(),
-    })
+    .union([
+        // The way a config names a size now.
+        z.object({ tier: z.string() }),
+        // The way it used to: raw quantities, snapped to the tier that covers them.
+        z.object({ cpu: z.string().optional(), memory: z.string().optional() }),
+    ])
     .optional();
 
 /**
@@ -96,15 +115,38 @@ const resourcesInput = z
  */
 function buildResourcesSchema(role: PreviewResourceRole, allowCustomResources: boolean) {
     return resourcesInput.transform((input) => {
-        if (!allowCustomResources || input == null) {
-            return standardResources(role);
-        }
-        const tier = STANDARD_RESOURCES[role];
-        return {
-            cpu: input.cpu ?? tier.cpu,
-            memory: input.memory ?? tier.memory,
-        };
+        if (!allowCustomResources || input == null) return standardResources(role);
+        return resolveTier(role, input);
     });
+}
+
+/**
+ * A tier by name, or the smallest one covering the raw quantities an older config
+ * asked for. An unrecognized tier name falls back to the role's default rather
+ * than failing: a config naming a tier this build does not know is a config from
+ * the future, and refusing it would take down a preview that is already running.
+ */
+function resolveTier(
+    role: PreviewResourceRole,
+    input: { tier: string } | { cpu?: string | undefined; memory?: string | undefined },
+): ContainerResources {
+    if (role === "app") {
+        const named = "tier" in input && isAppResourceTier(input.tier) ? input.tier : undefined;
+        const tier =
+            named ??
+            ("tier" in input
+                ? DEFAULT_APP_RESOURCE_TIER
+                : snapToResourceTier(APP_RESOURCE_TIERS, APP_RESOURCE_TIER_NAMES, input));
+        return { tier, ...APP_RESOURCE_TIERS[tier] };
+    }
+
+    const named = "tier" in input && isServiceResourceTier(input.tier) ? input.tier : undefined;
+    const tier =
+        named ??
+        ("tier" in input
+            ? DEFAULT_SERVICE_RESOURCE_TIER
+            : snapToResourceTier(SERVICE_RESOURCE_TIERS, SERVICE_RESOURCE_TIER_NAMES, input));
+    return { tier, ...SERVICE_RESOURCE_TIERS[tier] };
 }
 
 // `appSchema` and `serviceSchema` are built inside `buildPreviewConfigSchema`
@@ -1317,7 +1359,7 @@ export function validateHookSteps(
 
 function standardResources(role: PreviewResourceRole): ContainerResources {
     const standard = STANDARD_RESOURCES[role];
-    return { cpu: standard.cpu, memory: standard.memory };
+    return { tier: standard.tier, cpu: standard.cpu, memory: standard.memory };
 }
 export type ServiceConfig<TOptions = Record<string, unknown>> = Omit<PreviewConfig["services"][number], "options"> & {
     options: TOptions;

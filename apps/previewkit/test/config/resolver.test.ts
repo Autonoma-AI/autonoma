@@ -23,7 +23,7 @@ describe("resolveConfig", () => {
                 apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { cpu: "4", memory: "8Gi" } }],
             },
         });
-        expect(config.apps[0].resources).toEqual({ cpu: "250m", memory: "1Gi" });
+        expect(config.apps[0].resources).toEqual({ tier: "medium", cpu: "250m", memory: "1Gi" });
     });
 
     it("throws ZodError for an invalid document", () => {

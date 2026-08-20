@@ -7,7 +7,7 @@ const baseService = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => (
     recipe: "upstash",
     env: {},
     options: {},
-    resources: { cpu: "250m", memory: "512Mi" },
+    resources: { tier: "standard", cpu: "250m", memory: "512Mi" },
     ...overrides,
 });
 
@@ -121,10 +121,10 @@ describe("UpstashRecipe", () => {
     });
 
     it("requests and limits the same memory on the proxy, and never limits cpu", () => {
-        const result = recipe.generate(baseService({ resources: { cpu: "500m", memory: "1Gi" } }), "ns");
+        const result = recipe.generate(baseService({ resources: { tier: "large", cpu: "500m", memory: "2Gi" } }), "ns");
         const proxy = result.deployments[0]?.spec?.template?.spec?.containers?.find((c) => c.name === "proxy");
-        expect(proxy?.resources?.requests).toEqual({ cpu: "500m", memory: "1Gi" });
-        expect(proxy?.resources?.limits).toEqual({ memory: "1Gi" });
+        expect(proxy?.resources?.requests).toEqual({ cpu: "500m", memory: "2Gi" });
+        expect(proxy?.resources?.limits).toEqual({ memory: "2Gi" });
     });
 
     it("gives Redis a small fixed budget independent of config.resources", () => {

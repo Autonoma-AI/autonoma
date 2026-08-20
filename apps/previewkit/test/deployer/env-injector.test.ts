@@ -22,7 +22,7 @@ const apps: AppConfig[] = [
         path: "./apps/web",
         port: 3000,
         connections: [],
-        resources: { cpu: "250m", memory: "512Mi" },
+        resources: { tier: "standard", cpu: "250m", memory: "512Mi" },
         build_secrets: [],
     },
     {
@@ -31,7 +31,7 @@ const apps: AppConfig[] = [
         path: "./apps/api",
         port: 4000,
         connections: [],
-        resources: { cpu: "250m", memory: "512Mi" },
+        resources: { tier: "standard", cpu: "250m", memory: "512Mi" },
         build_secrets: [],
     },
 ];
@@ -40,13 +40,13 @@ const services: ServiceConfig[] = [
     {
         name: "db",
         recipe: "postgres",
-        resources: { cpu: "250m", memory: "512Mi" },
+        resources: { tier: "standard", cpu: "250m", memory: "512Mi" },
         options: {},
     },
     {
         name: "cache",
         recipe: "redis",
-        resources: { cpu: "250m", memory: "512Mi" },
+        resources: { tier: "standard", cpu: "250m", memory: "512Mi" },
         options: {},
     },
 ];
@@ -226,7 +226,7 @@ describe("EnvInjector", () => {
                 name: "temporal",
                 recipe: "temporal",
                 env: {},
-                resources: { cpu: "250m", memory: "512Mi" },
+                resources: { tier: "standard", cpu: "250m", memory: "512Mi" },
                 options: undefined,
             },
         ];
@@ -276,7 +276,7 @@ describe("EnvInjector", () => {
                 recipe: "api-gateway",
                 env: {},
                 options: { routes: [{ path: "/", target: "web", strip_prefix: false }] },
-                resources: { cpu: "250m", memory: "512Mi" },
+                resources: { tier: "standard", cpu: "250m", memory: "512Mi" },
             },
         ];
 
@@ -393,7 +393,7 @@ describe("EnvInjector", () => {
                 name: "temporal",
                 recipe: "temporal",
                 env: {},
-                resources: { cpu: "250m", memory: "512Mi" },
+                resources: { tier: "standard", cpu: "250m", memory: "512Mi" },
                 options: undefined,
             },
         ];

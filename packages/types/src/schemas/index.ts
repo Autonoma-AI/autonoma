@@ -21,6 +21,7 @@ export * from "./previewkit-builtins";
 export * from "./previewkit-config";
 export * from "./previewkit-config-rows";
 export * from "./previewkit-operations";
+export * from "./previewkit-resource-tiers";
 export * from "./previewkit-job-spec";
 export * from "./previewkit-node-build";
 export * from "./previewkit-node-pm";

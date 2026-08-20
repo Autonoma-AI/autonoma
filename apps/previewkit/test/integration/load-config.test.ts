@@ -58,11 +58,11 @@ integrationTestSuite({
             expect(loaded!.domain).toBe("base.example.com");
         });
 
-        test("loadConfig honors per-app/service resource overrides from a stored config", async ({ harness }) => {
+        test("loadConfig snaps a stored config's resource overrides onto tiers", async ({ harness }) => {
             const applicationId = await createApplication(harness);
             // A stored config is a trusted, platform-authored source, so its
-            // `resources` overrides are honored - unlike untrusted client input,
-            // which is ignored.
+            // `resources` are read rather than discarded - but a size is a tier now,
+            // so raw quantities snap UP to the smallest rung that covers them.
             await seedConfig(harness, applicationId, {
                 version: 2,
                 apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { cpu: "2", memory: "4Gi" } }],
@@ -71,11 +71,8 @@ integrationTestSuite({
 
             const loaded = await loadConfig(applicationId);
 
-            expect(loaded!.apps[0]!.resources).toEqual({ cpu: "2", memory: "4Gi" });
-            expect(loaded!.services[0]!.resources).toEqual({
-                cpu: "1",
-                memory: "2Gi",
-            });
+            expect(loaded!.apps[0]!.resources).toEqual({ tier: "xlarge", cpu: "500m", memory: "2Gi" });
+            expect(loaded!.services[0]!.resources).toEqual({ tier: "large", cpu: "500m", memory: "2Gi" });
         });
 
         test("loadConfig round-trips a document whose apps span multiple repositories", async ({ harness }) => {

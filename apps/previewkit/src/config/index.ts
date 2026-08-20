@@ -53,14 +53,8 @@ export function createPreviewkitDefaults(env: PreviewkitDefaultsEnv): Previewkit
         },
         standards: {
             resources: {
-                app: {
-                    cpu: STANDARD_RESOURCES.app.cpu,
-                    memory: STANDARD_RESOURCES.app.memory,
-                },
-                service: {
-                    cpu: STANDARD_RESOURCES.service.cpu,
-                    memory: STANDARD_RESOURCES.service.memory,
-                },
+                app: { ...STANDARD_RESOURCES.app },
+                service: { ...STANDARD_RESOURCES.service },
             },
         },
     };

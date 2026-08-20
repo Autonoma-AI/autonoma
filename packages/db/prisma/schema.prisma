@@ -1718,6 +1718,28 @@ enum PreviewkitAppBuildStatus {
 
 // How a dependency repo's branch is derived from the PR's branch, on
 // PreviewkitConfig. Absent behaves as same_branch_name.
+/// The sizes a preview app may run at. Values map to CPU and memory in
+/// `@autonoma/types` (`APP_RESOURCE_TIERS`), not here - the ladder is code so it
+/// can be retuned without a migration.
+enum PreviewkitAppResourceTier {
+  small
+  standard
+  medium
+  large
+  xlarge
+
+  @@map("previewkit_app_resource_tier")
+}
+
+/// See `PreviewkitAppResourceTier`. Separate ladder, separate workload profile.
+enum PreviewkitServiceResourceTier {
+  small
+  standard
+  large
+
+  @@map("previewkit_service_resource_tier")
+}
+
 enum PreviewkitBranchConvention {
   same_branch_name
   regex
@@ -2315,15 +2337,17 @@ model PreviewkitApp {
   // opinion, which is what keeps a hand-registered endpoint from being rewritten.
   sdkPath String? @map("sdk_path")
 
-  /// A request with no limit: capping CPU throttles a container's startup burst.
-  resourcesCpu           String  @map("resources_cpu")
-  /// Both the request and the limit - what a container is promised is what it may use.
-  resourcesMemory        String  @default("1Gi") @map("resources_memory")
-  /// Vestigial. Superseded by `resourcesMemory`; nothing reads or writes them.
-  /// Nullable so the writers could stop filling them in before the columns come
-  /// off, which the next migration does.
-  resourcesMemoryRequest String? @map("resources_memory_request")
-  resourcesMemoryLimit   String? @map("resources_memory_limit")
+  /// The size this app runs at. An enum, not a quantity: a size is chosen from a
+  /// menu the platform can price, cap and retune, which a free string never was.
+  /// The CPU and memory behind a tier live in code, so retuning one moves every
+  /// container on it without a migration.
+  resourcesTier          PreviewkitAppResourceTier @default(medium) @map("resources_tier")
+  /// Vestigial, and unread. The tier above replaced all four; they stay only until
+  /// no running pod selects them, which a later migration settles.
+  resourcesCpu           String?                   @map("resources_cpu")
+  resourcesMemory        String?                   @map("resources_memory")
+  resourcesMemoryRequest String?                   @map("resources_memory_request")
+  resourcesMemoryLimit   String?                   @map("resources_memory_limit")
 
   dependsOn String[] @default([]) @map("depends_on")
 
@@ -2375,15 +2399,16 @@ model PreviewkitConfigService {
   /// ![PreviewkitServiceOptions]
   options Json
 
-  /// A request with no limit: capping CPU throttles a container's startup burst.
-  resourcesCpu           String  @map("resources_cpu")
-  /// Both the request and the limit - what a container is promised is what it may use.
-  resourcesMemory        String  @default("1Gi") @map("resources_memory")
-  /// Vestigial. Superseded by `resourcesMemory`; nothing reads or writes them.
-  /// Nullable so the writers could stop filling them in before the columns come
-  /// off, which the next migration does.
-  resourcesMemoryRequest String? @map("resources_memory_request")
-  resourcesMemoryLimit   String? @map("resources_memory_limit")
+  /// See `PreviewkitApp.resourcesTier`. Services have their own ladder: an app's
+  /// peak memory has a median of 117Mi, while services run from a 54Mi redis to a
+  /// 1.7Gi postgres, and one ladder was wrong at both ends.
+  resourcesTier          PreviewkitServiceResourceTier @default(standard) @map("resources_tier")
+  /// Vestigial, and unread. The tier above replaced all four; they stay only until
+  /// no running pod selects them, which a later migration settles.
+  resourcesCpu           String?                       @map("resources_cpu")
+  resourcesMemory        String?                       @map("resources_memory")
+  resourcesMemoryRequest String?                       @map("resources_memory_request")
+  resourcesMemoryLimit   String?                       @map("resources_memory_limit")
 
   s3  Boolean?
   sqs Boolean?

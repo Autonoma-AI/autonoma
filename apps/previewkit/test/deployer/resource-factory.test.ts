@@ -16,7 +16,7 @@ const baseApp: AppConfig = {
     port: 3000,
     build_secrets: [],
     connections: [],
-    resources: { cpu: "250m", memory: "1Gi" },
+    resources: { tier: "medium", cpu: "250m", memory: "1Gi" },
 };
 
 const baseOpts = {
