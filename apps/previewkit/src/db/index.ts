@@ -139,8 +139,17 @@ export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): 
     // single-comment-per-PR contract across pushes.
     const updateCommentId = commentId != null && commentId !== "";
 
+    // Keyed on (repoFullName, prNumber) - the field the DB actually enforces
+    // uniqueness on - not on `namespace`. `namespace` includes a hash that
+    // isn't guaranteed stable across every naming scheme this row may have
+    // been created under (e.g. an orphaned row left behind by a deleted-then-
+    // recreated Application for the same repo), so matching on it can miss an
+    // existing row and then fail this create with a P2002 on the real unique
+    // constraint - which silently strands every later record* call for this
+    // deploy, since they all look the row up by the `namespace` that was
+    // never persisted.
     await db.previewkitEnvironment.upsert({
-        where: { namespace },
+        where: { repoFullName_prNumber: { repoFullName, prNumber } },
         create: {
             namespace,
             repoFullName,
@@ -154,6 +163,7 @@ export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): 
             organizationId,
         },
         update: {
+            namespace,
             headSha,
             headRef,
             ...(updateCommentId ? { commentId } : {}),
