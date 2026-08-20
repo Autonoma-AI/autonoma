@@ -41,3 +41,4 @@ export * from "./investigation-report";
 export * from "./activation-triggers";
 export * from "./suite-health";
 export * from "./suite-health-fix-plan";
+export * from "./application-activity";

@@ -1,10 +1,16 @@
 import type { SuiteHealth, SuiteHealthDriver, SuiteHealthLevel } from "@autonoma/types";
+import { WAITING_FOR_FIRST_PULL_REQUEST } from "lib/zero-state/copy";
+
+/**
+ * The paragraph for a suite that has never run, which every level's own `body` gets wrong by describing a
+ * process that has not begun. Read through `suiteHealthBody` rather than directly.
+ */
+const NEVER_RUN_BODY =
+    "The agent wrote these tests by reading your code. It has never operated your app, so nothing here is proven or disproven yet. Your first pull request is what starts that.";
 
 interface SuiteHealthPresentation {
     label: string;
-    /** One line, used in the collapsed meter's tooltip and the first-week banner. */
-    short: string;
-    /** The tooltip's paragraph. */
+    /** The tooltip's paragraph. Read it through `suiteHealthBody`, which handles the never-run case. */
     body: string;
     /** Tailwind classes for the lit bars, the pill and the header dot at this level. */
     bar: string;
@@ -15,7 +21,6 @@ interface SuiteHealthPresentation {
 export const SUITE_HEALTH_PRESENTATION: Record<SuiteHealthLevel, SuiteHealthPresentation> = {
     degraded: {
         label: "Degraded",
-        short: "Failures are piling up unresolved. The agent has stopped trusting its own tests.",
         body: "Runs keep failing and nothing has been triaged, so the agent can no longer tell a real bug from a stale test. Clear the open failures to bring it back.",
         bar: "bg-status-critical",
         pill: "border-status-critical/50 bg-status-critical/10 text-status-critical",
@@ -23,7 +28,6 @@ export const SUITE_HEALTH_PRESENTATION: Record<SuiteHealthLevel, SuiteHealthPres
     },
     at_risk: {
         label: "At risk",
-        short: "More tests are flaking than passing. A few decisions from you will fix this.",
         body: "Several tests fail intermittently. Every failure you clear - in the app, the preview or the test data - teaches the agent what to keep, and a handful usually moves this back up.",
         bar: "bg-status-high",
         pill: "border-status-high/50 bg-status-high/10 text-status-high",
@@ -31,7 +35,6 @@ export const SUITE_HEALTH_PRESENTATION: Record<SuiteHealthLevel, SuiteHealthPres
     },
     calibrating: {
         label: "Calibrating",
-        short: "New suite. Written from your app, not yet proven against it. Expect some noise.",
         body: "Your suite is new, so it is not proven yet. Every app starts here: the agent wrote these tests from one pass over your app and now needs real pull requests to learn which ones matter and to self-heal the ones that drift.",
         bar: "bg-status-warn",
         pill: "border-status-warn/50 bg-status-warn/10 text-status-warn",
@@ -39,7 +42,6 @@ export const SUITE_HEALTH_PRESENTATION: Record<SuiteHealthLevel, SuiteHealthPres
     },
     steady: {
         label: "Steady",
-        short: "Tests are holding across PRs and the agent is healing drift on its own.",
         body: "The suite has survived enough merges that the agent self-heals selector drift without asking. Failures you see now are much more likely to be real bugs.",
         bar: "bg-primary-ink",
         pill: "border-primary-ink/50 bg-primary-ink/10 text-primary-ink",
@@ -47,7 +49,6 @@ export const SUITE_HEALTH_PRESENTATION: Record<SuiteHealthLevel, SuiteHealthPres
     },
     proven: {
         label: "Proven",
-        short: "Every failure here is worth reading. False alarms are rare at this level.",
         body: "Weeks of green runs and merged pull requests behind it. When a test fails at this level, treat it as a bug in the code, not in the test.",
         bar: "bg-status-success",
         pill: "border-status-success/50 bg-status-success/10 text-status-success",
@@ -86,11 +87,24 @@ export function suiteHealthDriverNote(driver: SuiteHealthDriver): string | undef
     return DRIVER_NOTES[driver];
 }
 
+/**
+ * The tooltip's paragraph.
+ *
+ * `calibrating` has two readings and only one is true at a time: a suite that has run is converging, and a suite
+ * that has never run has not started converging. Its stored `body` describes the first in the present tense
+ * ("now needs real pull requests to learn which ones matter"), so a brand-new application was being told about
+ * a process that had not begun. Keyed off `hasEverRun`, which is what `suiteHealthFooter` below already does.
+ */
+export function suiteHealthBody(health: SuiteHealth): string {
+    if (!health.hasEverRun) return NEVER_RUN_BODY;
+    return SUITE_HEALTH_PRESENTATION[health.level].body;
+}
+
 /** The tooltip's footer: one concrete number from this app, never a generic promise where a fact will do. */
 export function suiteHealthFooter(health: SuiteHealth): string {
     const { evidence, staleIssues, trust, level } = health;
 
-    if (!health.hasEverRun) return "Waiting for your first pull request";
+    if (!health.hasEverRun) return WAITING_FOR_FIRST_PULL_REQUEST;
 
     if (staleIssues > 0 && (level === "degraded" || level === "at_risk")) {
         return staleIssues === 1

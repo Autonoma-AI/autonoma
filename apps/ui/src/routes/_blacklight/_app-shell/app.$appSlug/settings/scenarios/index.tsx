@@ -29,6 +29,7 @@ import {
   TabsList,
   TabsTrigger,
   Textarea,
+  ZeroState,
   cn,
 } from "@autonoma/blacklight";
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
@@ -55,6 +56,7 @@ import { type DryRunOutcome, formatDryRunError } from "lib/format-dry-run-error"
 import { useAPIMutation } from "lib/query/api-queries";
 import { ensureScenariosData } from "lib/query/scenarios.queries";
 import { type RouterOutputs, trpc } from "lib/trpc";
+import { SURFACE_COPY } from "lib/zero-state/copy";
 import { Suspense, useState } from "react";
 import { useCurrentApplication } from "../../../-use-current-application";
 
@@ -863,13 +865,12 @@ function ScenariosTable({ applicationId }: { applicationId: string }) {
 
   if (scenarios.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 py-12 text-center">
-        <BroadcastIcon size={32} className="text-text-secondary" />
-        <div>
-          <p className="text-sm font-medium text-text-primary">No scenarios discovered</p>
-          <p className="mt-1 text-2xs text-text-secondary">Click Discover to fetch scenarios from your webhook</p>
-        </div>
-      </div>
+      <ZeroState
+        variant="bare"
+        icon={<BroadcastIcon size={28} />}
+        title={SURFACE_COPY.scenarios_endpoint.empty.title}
+        description={SURFACE_COPY.scenarios_endpoint.empty.description}
+      />
     );
   }
 
@@ -912,15 +913,12 @@ function WebhookCallsTable({ applicationId }: { applicationId: string }) {
 
   if (calls.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 py-12 text-center">
-        <GlobeIcon size={32} className="text-text-secondary" />
-        <div>
-          <p className="text-sm font-medium text-text-primary">No webhook calls yet</p>
-          <p className="mt-1 text-2xs text-text-secondary">
-            Webhook calls will appear here when scenarios are triggered
-          </p>
-        </div>
-      </div>
+      <ZeroState
+        variant="bare"
+        icon={<GlobeIcon size={28} />}
+        title="No calls yet."
+        description="Every call Autonoma makes to your endpoint is logged here, with the response it got back."
+      />
     );
   }
 
@@ -1120,30 +1118,32 @@ function WebhookConfiguredContent({
 }
 
 // ---------------------------------------------------------------------------
-// Empty State (no webhook configured)
+// No Environment Factory endpoint configured
 // ---------------------------------------------------------------------------
 
-function EmptyState({ applicationId, deploymentId }: { applicationId: string; deploymentId?: string }) {
+/**
+ * A zero state, not an empty one: nothing has ever been configured, so it has to say what the endpoint is for
+ * rather than report a count of zero.
+ */
+function WebhookNotConfigured({ applicationId, deploymentId }: { applicationId: string; deploymentId?: string }) {
   const [configureOpen, setConfigureOpen] = useState(false);
 
   return (
     <>
       <Panel>
-        <PanelBody className="flex flex-col items-center gap-4 py-16">
-          <div className="flex size-12 items-center justify-center rounded-full border border-border-dim bg-surface-raised">
-            <WebhooksLogoIcon size={24} className="text-text-secondary" />
-          </div>
-          <div className="text-center">
-            <p className="text-sm font-medium text-text-primary">No webhook configured</p>
-            <p className="mt-1 max-w-sm text-2xs text-text-secondary">
-              Configure a webhook to enable scenario discovery and automated environment management for your
-              application.
-            </p>
-          </div>
-          <Button onClick={() => setConfigureOpen(true)}>
-            <WebhooksLogoIcon size={14} />
-            Configure webhook
-          </Button>
+        <PanelBody className="p-0">
+          <ZeroState
+            variant="bare"
+            icon={<WebhooksLogoIcon size={28} />}
+            title={SURFACE_COPY.scenarios_endpoint.zero.title}
+            description={SURFACE_COPY.scenarios_endpoint.zero.description}
+            steps={SURFACE_COPY.scenarios_endpoint.zero.steps}
+            action={{
+              label: "Configure webhook",
+              icon: <WebhooksLogoIcon size={14} />,
+              onClick: () => setConfigureOpen(true),
+            }}
+          />
         </PanelBody>
       </Panel>
 
@@ -1173,7 +1173,7 @@ function ScenariosPage() {
       {hasWebhook ? (
         <WebhookConfiguredContent webhookUrl={webhookUrl} applicationId={app.id} deploymentId={deploymentId} />
       ) : (
-        <EmptyState applicationId={app.id} deploymentId={deploymentId} />
+        <WebhookNotConfigured applicationId={app.id} deploymentId={deploymentId} />
       )}
     </div>
   );

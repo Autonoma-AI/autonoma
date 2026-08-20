@@ -310,7 +310,10 @@ export function BillingPanel() {
           </PanelHeader>
           <PanelBody className="space-y-2">
             {data.transactions.length === 0 ? (
-              <p className="text-sm text-text-secondary">No transactions yet.</p>
+              <p className="text-sm text-text-secondary">
+                No transactions yet. Preview deploys and runs draw down credits, and each one appears here as it
+                accrues.
+              </p>
             ) : (
               data.transactions.slice(0, 10).map((tx) => (
                 <div

@@ -1,10 +1,11 @@
-import { Button, Input } from "@autonoma/blacklight";
+import { Button, Input, ZeroState } from "@autonoma/blacklight";
 import { FolderDashedIcon } from "@phosphor-icons/react/FolderDashed";
 import { FolderPlusIcon } from "@phosphor-icons/react/FolderPlus";
 import { MinusCircleIcon } from "@phosphor-icons/react/MinusCircle";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useAuth } from "lib/auth";
 import { trpc } from "lib/trpc";
+import { SURFACE_COPY } from "lib/zero-state/copy";
 import { useEffect, useRef, useState } from "react";
 import { useTestChanges } from "../-use-test-changes";
 import { useSelectedBranch } from "../../-use-selected-branch";
@@ -84,22 +85,6 @@ export function TestsTreePanel() {
   const hasNoData = folders.length === 0 && testCases.length === 0;
   const hasNoResults = !hasNoData && filteredTree.length === 0;
 
-  if (hasNoData) {
-    return (
-      <div className="flex h-full flex-col">
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-text-tertiary">
-          <FolderDashedIcon size={32} />
-          <p className="text-center text-sm">No tests yet</p>
-          {isAdmin && (
-            <Button variant="default" size="sm" onClick={() => openCreateFolder()}>
-              New folder
-            </Button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-full flex-col">
       <div className="sticky top-0 z-20 flex shrink-0 gap-2 border-b border-border-mid bg-surface-raised p-2">
@@ -117,8 +102,23 @@ export function TestsTreePanel() {
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {hasNoData && (
+          // An application that finished setup always has tests, so an empty tree means they were deleted rather
+          // than never generated: an EMPTY state, not a zero one, and it should not explain a first run.
+          <ZeroState
+            variant="bare"
+            icon={<FolderDashedIcon size={28} />}
+            title={SURFACE_COPY.tests_tree.zero.title}
+            description={
+              isAdmin
+                ? SURFACE_COPY.tests_tree.zero.description
+                : "The planner writes your suite by reading your codebase. Ask an organization admin to regenerate it."
+            }
+            action={isAdmin ? { label: "New folder", onClick: () => openCreateFolder() } : undefined}
+          />
+        )}
         {hasNoResults && (
-          <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-text-tertiary">
+          <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-text-secondary">
             <p className="text-center text-sm">No results for &ldquo;{search.trim()}&rdquo;</p>
           </div>
         )}

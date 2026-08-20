@@ -88,6 +88,54 @@ export const baseSuiteHealth: RouterOutputs["applications"]["suiteHealth"] = {
  * The "fix it" backlog: how much is unresolved, and the prompt that hands it over. Numbers and prompt shape taken
  * from `centinel-finance/centinel-app`.
  */
+/**
+ * A working application with history behind it: the default for every story that is not *about* a first run.
+ * {@link zeroActivity} is the counterpart for stories that are.
+ */
+export const baseApplicationActivity: RouterOutputs["applications"]["activity"] = {
+    hasEverOpenedPullRequest: true,
+    hasEverRun: true,
+    firstRunAt: new Date("2026-07-14T09:00:00Z"),
+};
+
+/** Nothing has ever happened here: the post-setup window every zero state is written for. */
+export function zeroActivity(
+    overrides: Partial<RouterOutputs["applications"]["activity"]> = {},
+): RouterOutputs["applications"]["activity"] {
+    return { hasEverOpenedPullRequest: false, hasEverRun: false, ...overrides };
+}
+
+/**
+ * Suite health for an application that has never run, to be used WITH {@link zeroActivity}.
+ *
+ * These two must be set together. `hasEverRun` on the meter and on `applications.activity` are the same server
+ * fact - both derive from `firstRunAt` - so a story that zeroes one and not the other depicts a screen that cannot
+ * exist: a page saying nothing has run beside a meter reporting 21 runs. Pairing them here rather than inlining
+ * per story is what stops that.
+ */
+export function neverRunSuiteHealth(): RouterOutputs["applications"]["suiteHealth"] {
+    return {
+        ...baseSuiteHealth,
+        hasEverRun: false,
+        level: "calibrating",
+        rank: 3,
+        score: 0,
+        trust: 0,
+        driver: "none",
+        staleIssues: 0,
+        evidence: {
+            ...baseSuiteHealth.evidence,
+            runs: 0,
+            pullRequests: 0,
+            selfHeals: 0,
+            selfHealAttempts: 0,
+            findings: 0,
+            ageDays: 0,
+            daysSinceLastRun: 0,
+        },
+    };
+}
+
 export const baseSuiteHealthFixPlan: RouterOutputs["applications"]["suiteHealthFixPlan"] = {
     repoFullName: "acme/acme-web",
     totalIssues: 17,
@@ -212,6 +260,10 @@ const baseTrpcFixtures: TrpcFixtures = {
     },
     applications: {
         list: [baseApplication],
+        // Every app page reads activity to decide zero-vs-empty, so the baseline must answer it or those stories
+        // fail the unmocked-procedure check. All true: the default is a working application with history, and a
+        // story about a first-run state overrides it deliberately.
+        activity: baseApplicationActivity,
         suiteHealth: baseSuiteHealth,
         suiteHealthFixPlan: baseSuiteHealthFixPlan,
     },

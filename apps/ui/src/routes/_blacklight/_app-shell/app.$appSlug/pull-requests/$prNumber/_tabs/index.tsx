@@ -1,4 +1,4 @@
-import { Badge, Panel, PanelBody, Skeleton, StatusDot } from "@autonoma/blacklight";
+import { Badge, Panel, PanelBody, Skeleton, StatusDot, ZeroState } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
@@ -29,6 +29,7 @@ import {
 import { useCommitFromGitHub } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
 import type { RouterOutputs } from "lib/trpc";
+import { SURFACE_COPY } from "lib/zero-state/copy";
 import { Suspense, useMemo } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
@@ -490,7 +491,7 @@ function CompactTestsRun({
     // No executed tests yet; surface suite changes when the suite was edited.
     return (
       <div className="flex flex-col gap-2 bg-surface-void px-4 py-4 text-sm text-text-secondary">
-        <span>No tests have run for this PR yet.</span>
+        <span>No run has finished for this pull request yet.</span>
         {suiteChangeCount > 0 && (
           <span className="text-text-secondary">
             {suiteChangeCount} test suite {suiteChangeCount === 1 ? "change" : "changes"} were made -{" "}
@@ -665,10 +666,13 @@ function NoSnapshotsPanel() {
   return (
     <Panel>
       <PanelBody>
-        <div className="flex flex-col items-center justify-center gap-3 py-14 text-center text-text-tertiary">
-          <GitPullRequestIcon size={28} />
-          <p className="text-sm">No checkpoints yet for this pull request</p>
-        </div>
+        <ZeroState
+          variant="bare"
+          icon={<GitPullRequestIcon size={28} />}
+          title={SURFACE_COPY.pr_checkpoints.zero.title}
+          description={SURFACE_COPY.pr_checkpoints.zero.description}
+          pending="Waiting for the first run on this pull request"
+        />
       </PanelBody>
     </Panel>
   );

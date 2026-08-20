@@ -43,6 +43,7 @@ import { RateLimiterService } from "../rate-limit/rate-limiter.service";
 import { AdminService } from "./admin/admin.service";
 import { ApiKeysService } from "./api-keys/api-keys.service";
 import { ApplicationSetupsService } from "./app-generations/app-generations.service";
+import { ApplicationActivityService } from "./applications/application-activity.service";
 import { ApplicationsService } from "./applications/applications.service";
 import { SuiteHealthFixPlanService } from "./applications/suite-health-fix-plan.service";
 import { SuiteHealthService } from "./applications/suite-health.service";
@@ -68,6 +69,7 @@ export interface Services {
     auth: AuthService;
     apiKeys: ApiKeysService;
     applications: ApplicationsService;
+    applicationActivity: ApplicationActivityService;
     suiteHealth: SuiteHealthService;
     suiteHealthFixPlan: SuiteHealthFixPlanService;
     branches: BranchesService;
@@ -218,6 +220,7 @@ export function buildServices({
         deployments: new DeploymentsService(conn, previewkitTrigger),
         previewkitEnvFactory: new PreviewkitEnvFactoryService(conn, encryptionHelper),
         applications: applicationsService,
+        applicationActivity: new ApplicationActivityService(conn),
         suiteHealth: suiteHealthService,
         suiteHealthFixPlan: new SuiteHealthFixPlanService(conn, githubService, suiteHealthService),
         testGenerations: new TestGenerationsService(conn, storageProvider, billingService),

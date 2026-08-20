@@ -1,9 +1,10 @@
 import type { CheckpointPresentationSummary } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { baseApplication, branchPage } from "lib/storybook/base-fixtures";
+import { baseApplication, branchPage, neverRunSuiteHealth, zeroActivity } from "lib/storybook/base-fixtures";
 import { dashboardHandlers } from "lib/storybook/dashboard-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { RouterOutputs } from "lib/trpc";
+import { delay, http } from "msw";
 
 /**
  * The pull request list - the one surface that lists pull requests, after Home and Preview Environments were
@@ -261,3 +262,96 @@ export const Empty: Story = {
 export const HealthAndMainRail: Story = {
   args: { path: `${BASE}?state=open` },
 };
+
+/**
+ * `zeroActivity()` and `neverRunSuiteHealth()` must be set together: both derive from the same server `firstRunAt`,
+ * so zeroing one and not the other depicts a page that cannot exist in production.
+ */
+export const WaitingForFirstRun: Story = {
+  args: { path: `${BASE}?state=open` },
+  parameters: {
+    msw: {
+      handlers: dashboardHandlers({
+        applications: { activity: zeroActivity(), suiteHealth: neverRunSuiteHealth() },
+        branches: { list: branchPage([]), snapshotHistory: [], mainOpenProblems: [] },
+      }),
+    },
+  },
+};
+
+/**
+ * The one reading fixture data alone cannot reach: it exists only while a request is unanswered.
+ *
+ * The batch is stalled rather than the procedure - the tRPC client resolves a batch only when its slowest member
+ * does, so stalling `branches.mainOpenProblems` holds the rail in Suspense while the rest of the page settles.
+ */
+export const MainRailLoading: Story = {
+  args: { path: `${BASE}?state=open` },
+  parameters: {
+    msw: {
+      handlers: [
+        http.all("*/v1/trpc/*", async ({ request }) => {
+          const path = new URL(request.url).pathname.replace(/^.*\/v1\/trpc\//, "");
+          if (!path.split(",").includes("branches.mainOpenProblems")) return;
+          await delay("infinite");
+        }),
+        ...dashboardHandlers(),
+      ],
+    },
+  },
+};
+
+/** The empty twin: this repository has had pull requests and none are open right now. */
+export const NoOpenPullRequests: Story = {
+  args: { path: `${BASE}?state=open` },
+  parameters: {
+    msw: {
+      handlers: dashboardHandlers({
+        branches: { list: branchPage([]), snapshotHistory: [], mainOpenProblems: [] },
+      }),
+    },
+  },
+};
+
+/** `liveSince` is what ages the wait, and all it buys is one extra sentence after two days. */
+export const WaitingSeveralDays: Story = {
+  args: { path: `${BASE}?state=open` },
+  parameters: {
+    msw: {
+      handlers: dashboardHandlers({
+        applications: {
+          activity: zeroActivity({ liveSince: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000) }),
+          suiteHealth: neverRunSuiteHealth(),
+        },
+        branches: { list: branchPage([]), snapshotHistory: [], mainOpenProblems: [] },
+      }),
+    },
+  },
+};
+
+/**
+ * One open pull request whose pipeline is in flight, with no run yet at a verdict - `neverRunSuiteHealth` puts
+ * `evidence.runs` at zero, which is what the strip keys off.
+ */
+function firstRunStory(kind: "building" | "pending_checks" | "analyzing"): Story {
+  const only = { ...row(0), prStatus: { kind } as const, previewUrl: undefined, activeSnapshot: null };
+  return {
+    args: { path: `${BASE}?state=open` },
+    parameters: {
+      msw: {
+        handlers: dashboardHandlers({
+          applications: {
+            // Paired deliberately: both derive from one server fact, so zeroing one and not the other would
+            // depict a page that cannot exist.
+            activity: zeroActivity({ hasEverOpenedPullRequest: true }),
+            suiteHealth: neverRunSuiteHealth(),
+          },
+          branches: { list: branchPage([only]), snapshotHistory: [], mainOpenProblems: [] },
+        }),
+      },
+    },
+  };
+}
+
+export const FirstRunBuilding: Story = firstRunStory("building");
+export const FirstRunAnalyzing: Story = firstRunStory("analyzing");

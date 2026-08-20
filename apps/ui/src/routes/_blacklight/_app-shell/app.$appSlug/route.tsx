@@ -1,5 +1,6 @@
 import { Outlet, createFileRoute, notFound, redirect } from "@tanstack/react-router";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
+import { ensureApplicationActivityData } from "lib/query/activity.queries";
 import { ensureShellNavState, prefetchShellSuiteHealth } from "lib/query/app-shell.queries";
 import { ensureBranchData } from "lib/query/branches.queries";
 import { setLastAppId } from "../-last-app";
@@ -33,7 +34,13 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug")({
       }
     }
 
-    return await ensureBranchData(queryClient, app.id, app.mainBranch.name);
+    // Activity decides what the page content *is* (a zero state or a list), not just how it is decorated, so it
+    // is awaited rather than fired and forgotten. It batches with the branch read, so it costs no extra request.
+    const [branch] = await Promise.all([
+      ensureBranchData(queryClient, app.id, app.mainBranch.name),
+      ensureApplicationActivityData(queryClient, app.id),
+    ]);
+    return branch;
   },
   notFoundComponent: AppNotFound,
   component: AppLayout,

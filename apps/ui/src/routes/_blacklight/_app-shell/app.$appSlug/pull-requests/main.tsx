@@ -1,4 +1,4 @@
-import { Badge, Panel, PanelBody, Skeleton } from "@autonoma/blacklight";
+import { Badge, Panel, PanelBody, Skeleton, ZeroState } from "@autonoma/blacklight";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import type { PreviewLogSource } from "components/build-logs/preview-logs-tabs";
@@ -7,6 +7,7 @@ import { CheckpointSummaryPill } from "components/pr-status/checkpoint-summary-p
 import { PrStatusPill } from "components/pr-status/pr-status-pill";
 import { ShaRange } from "components/snapshot/sha-range";
 import { formatRelativeTime } from "lib/format";
+import { useApplicationActivity } from "lib/query/activity.queries";
 import {
   ensureBranchData,
   ensureMainOpenProblemsData,
@@ -23,6 +24,7 @@ import {
   usePreviewSummaryById,
 } from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
+import { SURFACE_COPY } from "lib/zero-state/copy";
 import { Suspense } from "react";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { CheckpointTestsRun } from "./-components/checkpoint-tests-run";
@@ -110,18 +112,24 @@ function MainBranchContent() {
   const app = useCurrentApplication();
   const { data: branch } = useBranchDetail(app.id, app.mainBranch.name);
   const { data: snapshots } = useSnapshotHistory(branch.id);
+  const activity = useApplicationActivity();
   const { data: prStatus } = usePrPipelineStatus(app.id, branch.id);
 
   const latest = snapshots[0];
 
   if (latest == null) {
+    // One string used to cover two opposite situations: a repository whose main has simply not been pushed to
+    // since setup, and one the agent has never run against at all. The second has to say what a checkpoint is.
+    const copy = activity.hasEverRun ? SURFACE_COPY.main_checkpoints.empty : SURFACE_COPY.main_checkpoints.zero;
     return (
       <Panel>
         <PanelBody>
-          <div className="flex flex-col items-center justify-center gap-3 py-14 text-center text-text-secondary">
-            <GitBranchIcon size={28} />
-            <p className="text-sm">No checkpoints recorded on main yet</p>
-          </div>
+          <ZeroState
+            variant="bare"
+            icon={<GitBranchIcon size={28} />}
+            title={copy.title}
+            description={copy.description}
+          />
         </PanelBody>
       </Panel>
     );

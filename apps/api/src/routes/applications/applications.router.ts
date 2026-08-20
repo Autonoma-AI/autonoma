@@ -60,6 +60,16 @@ export const applicationsRouter = router({
             services.applications.createMinimalApplication(input.name, organizationId),
         ),
 
+    /**
+     * The "first times" for this application. Read by every surface that renders a zero state, so they cannot
+     * disagree about whether anything has ever happened here.
+     */
+    activity: protectedProcedure
+        .input(z.object({ applicationId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.applicationActivity.getForApplication(input.applicationId, organizationId),
+        ),
+
     suiteHealth: protectedProcedure
         .input(z.object({ applicationId: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>

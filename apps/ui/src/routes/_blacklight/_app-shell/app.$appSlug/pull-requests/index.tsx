@@ -18,6 +18,8 @@ import { createFileRoute, notFound } from "@tanstack/react-router";
 import { IsolatedErrorBoundary } from "components/isolated-error-boundary";
 import { RouteErrorState } from "components/route-error-state";
 import { toPageParam } from "lib/page-param";
+import { useApplicationActivity } from "lib/query/activity.queries";
+import { useShellSuiteHealth } from "lib/query/app-shell.queries";
 import {
   ensureBranchesData,
   ensureMainOpenProblemsData,
@@ -29,10 +31,12 @@ import { type ReactNode, Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { SuiteHealthCard } from "routes/_blacklight/_app-shell/-layout/suite-health-meter";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
+import { FirstRunBody, isInFlightPipelineKind } from "./-components/first-run-body";
 import { MainProblemsRail, MainProblemsRailSkeleton } from "./-components/main-problems-rail";
 import { PR_EMPTY_DESCRIPTION } from "./-components/pr-empty-state-copy";
 import { prListColumns } from "./-components/pr-list-columns";
 import type { PullRequestRow } from "./-components/pull-request-row";
+import { VigilBody } from "./-components/vigil-body";
 
 const PR_STATE_TABS: ReadonlyArray<{ value: PullRequestStateFilter; label: string }> = [
   { value: "open", label: "Open" },
@@ -122,6 +126,10 @@ function PullRequestsError({ reset }: { reset: () => void }) {
 function PullRequestsContent({ state, page }: { state: PullRequestStateFilter; page: number }) {
   const app = useCurrentApplication();
   const { data: branches } = useBranches(state, page);
+  const activity = useApplicationActivity();
+  // Only the Open tab: a repository with no pull requests at all trivially has none merged or closed either, and
+  // explaining the loop three times over is noise.
+  const isZero = !activity.hasEverOpenedPullRequest && state === "open";
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
   const pageCount = Math.max(1, Math.ceil(branches.totalCount / branches.pageSize));
@@ -152,6 +160,14 @@ function PullRequestsContent({ state, page }: { state: PullRequestStateFilter; p
 
   // One liveness poll covering every preview the app has (read-only, never wakes them).
   const { data: liveness } = useApplicationPreviewLiveness();
+  // Already fetched for the card on this page, so this is the cache rather than another request.
+  const { data: suiteHealth } = useShellSuiteHealth();
+
+  // The first run, while it is still going. `evidence.runs` counts runs that reached a verdict, so zero means
+  // nothing has settled yet - `hasEverRun` cannot answer this, because `firstRunAt` counts a snapshot from the
+  // moment a run is TRIGGERED and is therefore already true while the very first one is still building.
+  const firstRunInFlight =
+    suiteHealth.evidence.runs === 0 ? rows.find((row) => isInFlightPipelineKind(row.prStatus.kind)) : undefined;
 
   // Asked of the rows rather than of the tab, so it holds for a list that mixes states and answers itself for
   // an application with no previews at all.
@@ -172,7 +188,14 @@ function PullRequestsContent({ state, page }: { state: PullRequestStateFilter; p
           content sets the panel's height and the page grows instead - twenty-five rows pushed the pager a
           screen and a half below the fold. Bounded, the rows scroll under a heading and a pager that stay. */}
       <PanelBody className="min-h-0 overflow-auto p-0">
-        {rows.length === 0 ? (
+        {firstRunInFlight != null && isInFlightPipelineKind(firstRunInFlight.prStatus.kind) && (
+          <FirstRunBody kind={firstRunInFlight.prStatus.kind} prNumber={firstRunInFlight.prNumber} />
+        )}
+        {rows.length === 0 && isZero ? (
+          // Nothing has EVER run here, which the empty state below cannot say: it reports a count, and a count of
+          // zero on a repository that has never been touched reads as "you failed to fill this".
+          <VigilBody activity={activity} />
+        ) : rows.length === 0 ? (
           <EmptyState
             className="border-0 bg-transparent"
             icon={<GitPullRequestIcon size={32} />}

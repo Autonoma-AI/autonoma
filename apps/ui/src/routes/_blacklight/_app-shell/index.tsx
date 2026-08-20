@@ -260,7 +260,7 @@ function CompletedAppCard({ app }: { app: AppCardData }) {
     <Link
       to={hasNoRepo ? "/app/$appSlug/settings" : "/app/$appSlug"}
       params={{ appSlug: app.slug }}
-      aria-label={`Open ${app.name}`}
+      aria-label={hasNoRepo ? `Connect a repository for ${app.name}` : `Open ${app.name}`}
       className="group block"
     >
       <Card className="gap-4 p-4 transition-colors group-hover:border-primary group-focus-visible:border-primary">
@@ -276,7 +276,8 @@ function CompletedAppCard({ app }: { app: AppCardData }) {
           <span className="flex items-center gap-1.5 text-xs text-text-secondary">
             {hasNoRepo ? (
               <>
-                <WarningCircleIcon size={14} weight="fill" className="text-status-critical" />
+                {/* Warn, not critical: an application waiting on a repository link is incomplete, not broken. */}
+                <WarningCircleIcon size={14} weight="fill" className="text-status-warn" />
                 No repository linked
               </>
             ) : (
@@ -286,8 +287,10 @@ function CompletedAppCard({ app }: { app: AppCardData }) {
               </>
             )}
           </span>
+          {/* Named for where the card actually goes. Without a repository the link lands on settings, so
+              offering to "open application" promised the dashboard and delivered a settings page. */}
           <span className={cn(buttonVariants({ variant: "secondary" }), "gap-2")}>
-            Open application
+            {hasNoRepo ? "Connect a repository" : "Open application"}
             <ArrowRightIcon size={14} className="transition-transform group-hover:translate-x-0.5" />
           </span>
         </div>

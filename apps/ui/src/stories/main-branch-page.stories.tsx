@@ -1,6 +1,13 @@
 import type { AnalysisVerdictState } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { appShellHandlers, baseApplication, branchPage, completedOnboardingState } from "lib/storybook/base-fixtures";
+import {
+  appShellHandlers,
+  baseApplication,
+  branchPage,
+  completedOnboardingState,
+  neverRunSuiteHealth,
+  zeroActivity,
+} from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import type { RouterOutputs } from "lib/trpc";
@@ -230,6 +237,39 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   args: { path: PATH },
+};
+
+/**
+ * Main has never been checked - the zero reading of the checkpoint panel.
+ *
+ * One string used to cover this and the case below, which are opposite situations: a repository the agent has
+ * never run against at all, and one whose runs have simply all been on pull-request branches. The first needs to
+ * say what a checkpoint even is; the second only needs to say none has landed on main.
+ */
+export const NeverChecked: Story = {
+  args: { path: PATH },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...mainBranchPageFixtures,
+        applications: { activity: zeroActivity(), suiteHealth: neverRunSuiteHealth() },
+        branches: { ...mainBranchPageFixtures.branches, snapshotHistory: [], mainOpenProblems: [] },
+      }),
+    },
+  },
+};
+
+/** The empty twin: runs have happened, none of them on main yet. Shot alongside `NeverChecked` on purpose. */
+export const MainNeverMerged: Story = {
+  args: { path: PATH },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...mainBranchPageFixtures,
+        branches: { ...mainBranchPageFixtures.branches, snapshotHistory: [], mainOpenProblems: [] },
+      }),
+    },
+  },
 };
 
 /**

@@ -1,4 +1,4 @@
-import { Button, Input, cn } from "@autonoma/blacklight";
+import { Button, Input, ZeroState, cn } from "@autonoma/blacklight";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
@@ -7,6 +7,7 @@ import { FolderDashedIcon } from "@phosphor-icons/react/FolderDashed";
 import { FolderOpenIcon } from "@phosphor-icons/react/FolderOpen";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { useFolders } from "lib/query/folders.queries";
+import { SURFACE_COPY } from "lib/zero-state/copy";
 import { createContext, useContext, useState } from "react";
 import type { ChildNode, FolderNode, TestCaseRecord } from "../../tests/-tests-tree/tree-types";
 import { buildTree, collectAllFolderIds, filterChildren } from "../../tests/-tests-tree/tree-utils";
@@ -70,22 +71,6 @@ export function EditTreePanel({
 
   const hasNoData = folders.length === 0 && testCases.length === 0;
 
-  if (hasNoData) {
-    return (
-      <div className="flex h-full flex-col">
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-text-tertiary">
-          <FolderDashedIcon size={32} />
-          <p className="text-center text-sm">No tests yet</p>
-          {onOpenAddDialog != null && (
-            <Button variant="default" size="sm" onClick={onOpenAddDialog}>
-              Add test
-            </Button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <EditTreeContext
       value={{
@@ -111,8 +96,17 @@ export function EditTreePanel({
           )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
+          {hasNoData && (
+            <ZeroState
+              variant="bare"
+              icon={<FolderDashedIcon size={28} />}
+              title={SURFACE_COPY.tests_tree.zero.title}
+              description={SURFACE_COPY.tests_tree.zero.description}
+              action={onOpenAddDialog != null ? { label: "Add test", onClick: onOpenAddDialog } : undefined}
+            />
+          )}
           {filteredTree.length === 0 && (
-            <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-text-tertiary">
+            <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-text-secondary">
               <p className="text-center text-sm">No results for &ldquo;{search.trim()}&rdquo;</p>
             </div>
           )}
@@ -151,16 +145,16 @@ function EditFolderRow({ node, level }: { node: FolderNode; level: number }) {
         className="group flex w-full items-center gap-1.5 py-1.5 pr-2 text-left text-sm transition-colors hover:bg-surface-base"
         style={{ paddingLeft: `${level * 16 + 12}px` }}
       >
-        <span className="w-4 shrink-0 text-text-tertiary hover:text-text-secondary">
+        <span className="w-4 shrink-0 text-text-secondary hover:text-text-secondary">
           {isExpanded ? <CaretDownIcon size={14} /> : <CaretRightIcon size={14} />}
         </span>
         {isExpanded ? (
           <FolderOpenIcon size={14} className="shrink-0 text-text-secondary" />
         ) : (
-          <FolderIcon size={14} className="shrink-0 text-text-tertiary" />
+          <FolderIcon size={14} className="shrink-0 text-text-secondary" />
         )}
         <span className="truncate text-text-secondary">{node.name}</span>
-        <span className="ml-auto shrink-0 text-xs text-text-tertiary">{node.children.length}</span>
+        <span className="ml-auto shrink-0 text-xs text-text-secondary">{node.children.length}</span>
       </button>
 
       {isExpanded &&
@@ -194,12 +188,12 @@ function EditTestRow({ node, level }: { node: TestCaseRecord; level: number }) {
       style={{ paddingLeft: `${level * 16 + 12}px` }}
     >
       <span className="w-4 shrink-0" />
-      <FileTextIcon size={14} className={cn("shrink-0 text-text-tertiary", isRemoved && "opacity-50")} />
+      <FileTextIcon size={14} className={cn("shrink-0 text-text-secondary", isRemoved && "opacity-50")} />
       <span
         className={cn(
           "truncate",
           isSelected ? "font-medium text-text-primary" : "text-text-secondary",
-          isRemoved && "text-text-tertiary line-through opacity-60",
+          isRemoved && "text-text-secondary line-through opacity-60",
         )}
       >
         {node.name}

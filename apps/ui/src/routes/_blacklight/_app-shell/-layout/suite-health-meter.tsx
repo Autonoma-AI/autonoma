@@ -8,6 +8,7 @@ import { useShellSuiteHealth } from "lib/query/app-shell.queries";
 import {
   SUITE_HEALTH_LOWERS,
   SUITE_HEALTH_PRESENTATION,
+  suiteHealthBody,
   SUITE_HEALTH_RAISES,
   suiteHealthDriverNote,
   suiteHealthFooter,
@@ -31,7 +32,7 @@ function isFixOffered(level: SuiteHealthLevel): boolean {
 
 /** Exported so a story can render the panel on its own - it needs no router context at all. */
 export function SuiteHealthTooltip({ health, onFixIt }: { health: SuiteHealth; onFixIt?: () => void }) {
-  const { label, body, dot } = SUITE_HEALTH_PRESENTATION[health.level];
+  const { label, dot } = SUITE_HEALTH_PRESENTATION[health.level];
   const driverNote = suiteHealthDriverNote(health.driver);
 
   return (
@@ -57,7 +58,7 @@ export function SuiteHealthTooltip({ health, onFixIt }: { health: SuiteHealth; o
       </div>
 
       <div className="flex flex-col gap-2 border-b border-border-dim px-3.5 py-3">
-        <p className="text-pretty text-xs leading-relaxed text-text-primary">{body}</p>
+        <p className="text-pretty text-xs leading-relaxed text-text-primary">{suiteHealthBody(health)}</p>
         {driverNote != null && <p className="text-pretty text-xs leading-relaxed text-text-secondary">{driverNote}</p>}
         <span className="font-mono text-3xs text-text-secondary">{suiteHealthStats(health)}</span>
       </div>
