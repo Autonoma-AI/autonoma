@@ -44,6 +44,49 @@ export type ResolvedEvidenceAsset = z.infer<typeof resolvedEvidenceAssetSchema>;
 // sanitizer neutralize a fabricated raw path, not only an unbacked token.
 const MARKDOWN_IMAGE_RE = /!\[[^\]]*\]\(\s*([^\s)]+)[^)]*\)/g;
 
+// Matches a Markdown link or image whose destination carries one of our token schemes. Group 1 is the
+// leading "!" (present on an image, absent on a link), group 2 the label, group 3 the scheme, group 4 the
+// id/slug. Deliberately narrower than MARKDOWN_IMAGE_RE: this one is a renderer, not a sanitizer, so it only
+// touches destinations it knows how to resolve and leaves ordinary links alone.
+const NARRATIVE_TOKEN_RE = /(!?)\[([^\]]*)\]\(\s*(evidence:|issue:|finding:)([^\s)]*)[^)]*\)/g;
+
+/**
+ * How a caller resolves the two token schemes that have a destination outside the app. Both are optional: a
+ * scheme with no resolver, or a resolver that returns undefined for an id it does not know, degrades that
+ * token to its plain label - the same "a fabricated reference resolves to nothing" rule the UI renderer follows.
+ */
+export interface NarrativeTokenResolvers {
+    issueUrl?: (issueId: string) => string | undefined;
+    evidenceUrl?: (assetId: string) => string | undefined;
+}
+
+/**
+ * Rewrite a narrative's in-app tokens into Markdown a reader outside the app can follow: an `issue:` token
+ * becomes a link to the issue page and an `evidence:` image its signed URL. A `finding:` token always degrades
+ * to its label, because a finding is per-snapshot and its slug names nothing reachable outside the app.
+ */
+export function flattenNarrativeTokens(markdown: string, resolvers: NarrativeTokenResolvers = {}): string {
+    return markdown.replace(NARRATIVE_TOKEN_RE, (_match, bang: string, label: string, scheme: string, id: string) => {
+        const isImage = bang === "!";
+        const resolved = resolveNarrativeToken(scheme, id, isImage, resolvers);
+        if (resolved == null) return label;
+        return isImage ? `![${label}](${resolved})` : `[${label}](${resolved})`;
+    });
+}
+
+function resolveNarrativeToken(
+    scheme: string,
+    id: string,
+    isImage: boolean,
+    resolvers: NarrativeTokenResolvers,
+): string | undefined {
+    // An `evidence:` token is only ever an image and an `issue:` token only ever a link; a narrative that
+    // crosses them is malformed, and rendering it as plain text is the same degradation an unknown id gets.
+    if (scheme === EVIDENCE_TOKEN_SCHEME) return isImage ? resolvers.evidenceUrl?.(id) : undefined;
+    if (scheme === ISSUE_TOKEN_SCHEME) return isImage ? undefined : resolvers.issueUrl?.(id);
+    return undefined;
+}
+
 /**
  * The unique evidence assetIds an image token references in the narrative, in
  * first-seen order. Used by the author to size the manifest to what the narrative

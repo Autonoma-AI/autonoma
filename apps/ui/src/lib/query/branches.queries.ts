@@ -122,6 +122,18 @@ export async function ensureAnalysisIssuesData(queryClient: QueryClient, branchI
 }
 
 /**
+ * Deliberately not polled. The fix page is a workflow the reader is part-way through, and swapping the issue set
+ * under a live selection would rewrite the prompt they are about to copy.
+ */
+export function useAnalysisForPr(applicationId: string, prNumber: number) {
+    return useSuspenseQuery(trpc.branches.analysisForPr.queryOptions({ applicationId, prNumber }));
+}
+
+export async function ensureAnalysisForPrData(queryClient: QueryClient, applicationId: string, prNumber: number) {
+    await ensureAPIQueryData(queryClient, trpc.branches.analysisForPr.queryOptions({ applicationId, prNumber }));
+}
+
+/**
  * The open issues on the application's main branch, already ordered by the API. Every "what is broken on main"
  * surface reads this one query, so the overview rail and the main-branch page's problem list cannot disagree.
  */

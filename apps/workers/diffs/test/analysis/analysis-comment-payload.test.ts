@@ -140,54 +140,69 @@ describe("buildAnalysisCommentPayload", () => {
         expect(payload.bugs[0]?.screenshotUrl).toBe("signed:s3://bucket/clip.gif");
     });
 
-    it("hands off to a coding agent: a grounded brief plus prefilled agent deep-links", async () => {
+    it("offers FIX IT alongside the other CTAs when there is something to fix", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            { verdict: oneBug(), bugIssues: [bugIssue()], openIssueCount: 1 },
+            context,
+            sign,
+        );
+
+        expect(payload.ctas.map((cta) => cta.label)).toEqual(["Open in Autonoma", "See preview", "FIX IT"]);
+        expect(payload.ctas.at(-1)?.href).toBe("https://beta.autonoma.app/app/acme/pull-requests/42/fix");
+    });
+
+    it("offers FIX IT on a run whose only issues are environment or scenario ones", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                verdict: oneBug(),
-                bugIssues: [bugIssue({ expectedBehavior: "The export should download a CSV." })],
+                verdict: allPassed(),
+                bugIssues: [],
+                coverageIssues: [
+                    {
+                        id: "issue_coupon_scenario",
+                        title: "Checkout scenario seeds no coupon codes",
+                        actualBehavior: "The coupon field is never seeded, so the discount path never runs.",
+                    },
+                ],
+                openIssueCount: 1,
             },
             context,
             sign,
         );
 
-        const prompt = payload.handoff?.prompt ?? "";
-        // The brief has to stand alone: an agent reading only this should know what broke, where to look, and how
-        // to check its work.
-        expect(prompt).toContain("acme/storefront#42");
-        expect(prompt).toContain("e5d627a");
-        expect(prompt).toContain("Expected: The export should download a CSV.");
-        expect(prompt).toContain("Actual: The export button threw a 500.");
-        expect(prompt).toContain("Suspected cause: The export handler indexes past the end of the row array.");
-        expect(prompt).toContain("app/export.ts:12-18");
-        expect(prompt).toContain("rows[i + 1].id");
-        expect(prompt).toContain(
-            "Issue details: https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_csv_export",
-        );
-        expect(prompt).toContain(
-            "Run that reproduces it: https://beta.autonoma.app/app/acme/pull-requests/42/snapshots/snap_1/findings/finding_csv",
-        );
-        // The suspected cause is a lead, not a verdict - the brief must say so, or an agent will trust it blindly.
-        expect(prompt).toContain("confirm it against the code before changing anything");
-        // The auth-free channel for an agent, since the in-app links need a login.
-        expect(prompt).toContain('get_analysis(repoFullName="acme/storefront", prNumber=42)');
-
-        expect(payload.handoff?.links.map((link) => link.label)).toEqual([
-            "Open in Claude Code",
-            "Open in ChatGPT",
-            "Open in Cursor",
-        ]);
-        const claudeCode = payload.handoff?.links[0]?.href ?? "";
-        expect(claudeCode).toContain("https://claude.ai/code?prompt=");
-        expect(claudeCode).toContain("repositories=acme%2Fstorefront");
-        // Unescaped parens would prematurely close the markdown link destination this href is rendered into.
-        expect(claudeCode).not.toContain("(");
-        expect(claudeCode).not.toContain(")");
+        expect(payload.ctas.map((cta) => cta.label)).toContain("FIX IT");
     });
 
-    it("offers no handoff on a clean pass - there is nothing to hand off", async () => {
-        const payload = await buildAnalysisCommentPayload({ verdict: allPassed(), bugIssues: [] }, context, sign);
+    it("offers FIX IT for a branch issue this run produced no card for", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            { verdict: allPassed(), bugIssues: [], coverageIssues: [], openIssueCount: 1 },
+            context,
+            sign,
+        );
 
-        expect(payload.handoff).toBeUndefined();
+        expect(payload.ctas.map((cta) => cta.label)).toContain("FIX IT");
+    });
+
+    it("offers no FIX IT on a clean pass - there is nothing to hand off", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            { verdict: allPassed(), bugIssues: [], openIssueCount: 0 },
+            context,
+            sign,
+        );
+
+        expect(payload.ctas.map((cta) => cta.label)).not.toContain("FIX IT");
+    });
+
+    it("carries the MCP channel as a hidden agent hint, on every run", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            { verdict: allPassed(), bugIssues: [], openIssueCount: 0 },
+            context,
+            sign,
+        );
+
+        expect(payload.agentHint).toContain('get_analysis(repoFullName="acme/storefront", prNumber=42)');
+        expect(payload.agentHint).toContain("claude mcp add --transport http --scope user autonoma");
+        // It is embedded in an HTML comment, which a stray terminator would close early.
+        expect(payload.agentHint).not.toContain("-->");
     });
 
     it("carries no suspected cause or evidence when the issue grounded none", async () => {

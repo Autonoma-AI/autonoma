@@ -14,6 +14,11 @@ export function buildPrPageUrl(appBaseUrl: string, appSlug: string, prNumber: nu
     return absolute(appBaseUrl, `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}/`);
 }
 
+/** The PR's coding-agent handoff page - the "FIX IT" CTA's destination. */
+export function buildPrFixUrl(appBaseUrl: string, appSlug: string, prNumber: number): string {
+    return absolute(appBaseUrl, `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}/fix`);
+}
+
 /**
  * One issue's detail page. Issues are branch-scoped (they evolve across snapshots), so the route sits at the PR
  * level, above snapshots - a link stays valid after the next push, unlike a per-snapshot finding link.

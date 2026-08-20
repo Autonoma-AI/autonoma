@@ -18,7 +18,7 @@ type BadgeVariant = NonNullable<React.ComponentProps<typeof Badge>["variant"]>;
  * THE presentation of each flow status. A `Record` over the union, so a new status is a compile error here until it
  * is given copy and a tone, and no surface re-derives its own.
  */
-const FLOW_STATUS_META: Record<AnalysisFlowStatus, { label: string; variant: BadgeVariant }> = {
+export const FLOW_STATUS_META: Record<AnalysisFlowStatus, { label: string; variant: BadgeVariant }> = {
   broken: { label: "Bug", variant: "critical" },
   verified: { label: "Verified", variant: "success" },
   partial: { label: "Partly verified", variant: "warn" },
@@ -29,7 +29,7 @@ const FLOW_STATUS_META: Record<AnalysisFlowStatus, { label: string; variant: Bad
  * Whose a flow's gaps are - the reader's first question, so it is a real badge rather than a muted one. A flow with
  * no gap has no owner and shows nothing.
  */
-const FLOW_OWNER_META: Record<AnalysisFlow["owner"], { label: string; variant: BadgeVariant } | undefined> = {
+export const FLOW_OWNER_META: Record<AnalysisFlow["owner"], { label: string; variant: BadgeVariant } | undefined> = {
   client: { label: "Yours to fix", variant: "warn" },
   autonoma: { label: "On us", variant: "secondary" },
   none: undefined,

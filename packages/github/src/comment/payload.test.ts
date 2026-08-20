@@ -63,7 +63,7 @@ describe("payloadBuilder", () => {
 
         // Both top-level CTAs render as markdown image-links (primary + secondary buttons).
         expect(markdown).toContain(
-            "[![Open in Autonoma](<https://cdn.autonoma.app/github-comment/open-in-autonoma-button-v3.svg>)](<https://autonoma.app/summary>)",
+            "[![Open in Autonoma](<https://cdn.autonoma.app/github-comment/open-in-autonoma-button-v4.svg>)](<https://autonoma.app/summary>)",
         );
         expect(markdown).toContain(
             "[![See preview](<https://cdn.autonoma.app/github-comment/see-preview-button-v3.svg>)](<https://preview.example.com>)",
@@ -287,25 +287,44 @@ describe("payloadBuilder", () => {
         expect(markdown).toContain("The app passed every affected flow; two proposed tests could not be established.");
     });
 
-    it("renders the coding-agent handoff: deep-links plus a copy-paste prompt in a code fence", () => {
+    it("hands the reader off through the FIX IT button, not a wall of prompt text", () => {
         const markdown = renderMarkdown({
             ...payloadBuilder({ state: "critical", prNumber: 42 }),
-            handoff: {
-                prompt: "Fix the bug.\n```\n- old\n+ new\n```",
-                links: [
-                    { label: "Open in Claude Code", href: "https://claude.ai/code?prompt=x&repositories=acme%2Fweb" },
-                    { label: "Open in ChatGPT", href: "https://chatgpt.com/?q=x" },
-                ],
-            },
+            assetBaseUrl: "https://autonoma.app/github-comment/",
+            ctas: [
+                { label: "Open in Autonoma", href: "https://autonoma.app/app/acme/pull-requests/42/" },
+                { label: "FIX IT", href: "https://autonoma.app/app/acme/pull-requests/42/fix" },
+            ],
         });
 
-        expect(markdown).toContain("<summary>🤖 Hand off to a coding agent</summary>");
-        // Deep-links render as plain markdown links joined by " · ".
         expect(markdown).toContain(
-            "[Open in Claude Code](<https://claude.ai/code?prompt=x&repositories=acme%2Fweb>) · [Open in ChatGPT](<https://chatgpt.com/?q=x>)",
+            "[![FIX IT](<https://autonoma.app/github-comment/fix-it-button-v1.svg>)](<https://autonoma.app/app/acme/pull-requests/42/fix>)",
         );
-        // The prompt sits in a fence one backtick longer than the nested ``` block, so its code survives intact.
-        expect(markdown).toContain("````\nFix the bug.\n```\n- old\n+ new\n```\n````");
+        expect(markdown).not.toContain("Hand off to a coding agent");
+    });
+
+    it("degrades the FIX IT button to a plain link where images are stripped", () => {
+        const markdown = renderMarkdown({
+            ...payloadBuilder({ state: "critical", prNumber: 42 }),
+            ctas: [{ label: "FIX IT", href: "https://autonoma.app/app/acme/pull-requests/42/fix" }],
+        });
+
+        expect(markdown).toContain("[🔧 FIX IT](<https://autonoma.app/app/acme/pull-requests/42/fix>)");
+    });
+});
+
+describe("the hidden agent hint", () => {
+    it("renders as an HTML comment, so a human sees nothing and `gh pr view` sees everything", () => {
+        const hint = 'Connect the Autonoma MCP, then call `get_analysis(repoFullName="acme/web", prNumber=42)`.';
+        const markdown = renderMarkdown({ ...payloadBuilder({ state: "critical", prNumber: 42 }), agentHint: hint });
+
+        expect(markdown).toContain(`<!-- autonoma:agent-hint\n${hint}\n-->`);
+    });
+
+    it("is not emitted at all when there is no hint, so the block never appears empty", () => {
+        const markdown = renderMarkdown(payloadBuilder({ state: "healthy", prNumber: 42 }));
+
+        expect(markdown).not.toContain("autonoma:agent-hint");
     });
 });
 

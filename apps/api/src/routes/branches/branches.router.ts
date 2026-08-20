@@ -125,6 +125,15 @@ export const branchesRouter = router({
             services.branches.getMainOpenProblems(input.applicationId, organizationId),
         ),
 
+    // The PR's analysis exactly as the MCP `get_analysis` tool serves it: the run header (verdict, headline, flows,
+    // report prose, impact reasoning) plus every open issue of every kind with its behavior claim, grounded cause,
+    // covering tests and signed media. User-facing.
+    analysisForPr: protectedProcedure
+        .input(z.object({ applicationId: z.string(), prNumber: z.number().int().positive() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getAnalysisForPr(input.applicationId, input.prNumber, organizationId),
+        ),
+
     // One analysis issue in full (narrative + signed evidence + cross-snapshot finding instances) for the PR-level
     // issue-detail page. User-facing; returns null for an unknown/malformed issue.
     analysisIssueDetail: protectedProcedure

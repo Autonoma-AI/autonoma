@@ -137,17 +137,6 @@ export const AutonomaCommentStatsSchema = z.object({
 export type AutonomaCommentStats = z.infer<typeof AutonomaCommentStatsSchema>;
 
 /**
- * The "hand off to a coding agent" block. `prompt` is the full, paste-ready brief (findings + evidence)
- * shown in a copy-buttoned code fence; `links` are "open in <agent>" deep-links that prefill a short
- * kickoff prompt (review-and-send, never auto-run). Absent on comments with no findings.
- */
-export const AutonomaCommentHandoffSchema = z.object({
-    prompt: z.string(),
-    links: z.array(AutonomaCommentCtaSchema).default([]),
-});
-export type AutonomaCommentHandoff = z.infer<typeof AutonomaCommentHandoffSchema>;
-
-/**
  * Section 1 of the unified `pr` comment: a single coarse status line for the branch's preview environment - present
  * only for previewkit orgs, whose preview Autonoma builds. `status` is our copy for the current build state; `link`
  * points at the reachable preview (front door) when there is one. The full per-service breakdown lives on the in-app
@@ -210,7 +199,12 @@ export const AutonomaCommentPayloadSchema = z.object({
     flowGroups: z.array(AutonomaCommentFlowGroupSchema).default([]),
     warnings: z.array(z.string()).default([]),
     details: z.array(z.object({ summary: z.string(), body: z.string() })).default([]),
-    handoff: AutonomaCommentHandoffSchema.optional(),
+    /**
+     * A hidden, agent-only block: how to read these findings live through the Autonoma MCP and re-check the PR
+     * once they are fixed. Rendered as an HTML comment - invisible in GitHub's rendered view, present in the raw
+     * body an agent fetches with `gh pr view --comments`.
+     */
+    agentHint: z.string().optional(),
     /** Section 1 of the `pr` comment: the preview environment's status line. Absent on every other comment kind. */
     preview: AutonomaCommentPreviewSchema.optional(),
     /**

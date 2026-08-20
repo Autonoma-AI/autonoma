@@ -4,15 +4,12 @@ import type {
     AutonomaCommentEvidence,
     AutonomaCommentFlow,
     AutonomaCommentFlowGroup,
-    AutonomaCommentHandoff,
     AutonomaCommentNote,
     AutonomaCommentPayload,
     AutonomaCommentPreview,
     AutonomaCommentState,
     AutonomaCommentStats,
 } from "./types";
-
-const HANDOFF_SUMMARY = "🤖 Hand off to a coding agent";
 
 /**
  * The default hidden marker stamped as the comment's first line.
@@ -43,17 +40,21 @@ const STATE_ICONS: Record<AutonomaCommentState, string> = {
 // Exported as the one source of truth so the analysis/pr payload builders match on the same string.
 export const SEE_PREVIEW_CTA_LABEL = "See preview";
 
+export const FIX_IT_CTA_LABEL = "FIX IT";
+
 // The comment is text-first (portable to markdown-only renderers like Linear): most CTAs are plain
-// markdown links. The two top-level CTAs keep an image (a Vercel-style primary + secondary pair) rendered
+// markdown links. The top-level CTAs keep an image (a Vercel-style primary + secondary set) rendered
 // as a markdown image-link that still degrades to a plain link where images are stripped.
 // The version suffix cache-busts GitHub's camo image proxy, which caches by source URL: any visual
 // change to a button must ship under a new filename (keep the old file so existing comments still render).
 const CTA_ASSETS: Record<string, string> = {
-    "Open in Autonoma": "open-in-autonoma-button-v3.svg",
+    [FIX_IT_CTA_LABEL]: "fix-it-button-v1.svg",
+    "Open in Autonoma": "open-in-autonoma-button-v4.svg",
     [SEE_PREVIEW_CTA_LABEL]: "see-preview-button-v3.svg",
 };
 
 const CTA_TEXT_PREFIXES: Record<string, string> = {
+    [FIX_IT_CTA_LABEL]: "🔧 ",
     "Open in Autonoma": "↗ ",
     [SEE_PREVIEW_CTA_LABEL]: "👁 ",
     "Watch replay": "🎬 ",
@@ -64,6 +65,8 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
     const sections: string[] = [`<!-- ${options?.marker ?? DEFAULT_COMMENT_MARKER} -->`];
     const machineUrls = renderMachineReadableUrls(payload);
     if (machineUrls != null) sections.push(machineUrls);
+    const agentHint = renderAgentHint(payload);
+    if (agentHint != null) sections.push(agentHint);
     const rich = payload.bugs.some(isRichBug);
 
     // Text-first: a status emoji + generated title, then the state label + headline as plain markdown - no
@@ -142,8 +145,6 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
             "</details>",
         );
     }
-
-    if (payload.handoff != null) sections.push("", renderHandoff(payload.handoff));
 
     return sections.join("\n");
 }
@@ -250,21 +251,20 @@ function renderMachineReadableUrls(payload: AutonomaCommentPayload): string | un
     return `<!-- ${PREVIEW_URLS_MARKER} ${JSON.stringify(urls)} -->`;
 }
 
+const AGENT_HINT_MARKER = "autonoma:agent-hint";
+
 /**
- * The "hand off to a coding agent" collapsible: "open in <agent>" deep-links (prefill only) plus the full
- * paste-ready prompt in a code fence, which GitHub renders with a native copy button. The outer fence is sized
- * longer than any backtick run in the prompt so the evidence's own code blocks survive intact.
+ * A hidden block telling an agent how to read these findings live through the Autonoma MCP and re-check the PR
+ * afterwards. Invisible in GitHub's rendered view; present in the raw body an agent fetches with
+ * `gh pr view --comments`.
+ *
+ * The hint contains `--` (from `claude mcp add --transport ...`), which is fine: a comment starting its own line
+ * at column 0 parses as an HTML block whose only end condition is a literal `-->`.
  */
-function renderHandoff(handoff: AutonomaCommentHandoff): string {
-    const lines: string[] = ["<details>", `<summary>${HANDOFF_SUMMARY}</summary>`, ""];
-    if (handoff.links.length > 0) {
-        lines.push("Open with your coding agent - the prompt is prefilled (review, then send):", "");
-        lines.push(handoff.links.map((link) => renderTextLink(link.label, link.href)).join(" · "));
-        lines.push("", "Or copy the full prompt below:", "");
-    }
-    const fence = "`".repeat(longestBacktickRun(handoff.prompt) + 1);
-    lines.push(fence, handoff.prompt, fence, "</details>");
-    return lines.join("\n");
+function renderAgentHint(payload: AutonomaCommentPayload): string | undefined {
+    const hint = payload.agentHint;
+    if (hint == null || hint === "") return undefined;
+    return `<!-- ${AGENT_HINT_MARKER}\n${hint}\n-->`;
 }
 
 function renderTitle(payload: AutonomaCommentPayload): string {

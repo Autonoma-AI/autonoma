@@ -5,6 +5,7 @@ import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
+import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { useLocation } from "@tanstack/react-router";
 import { PrStatusPill } from "components/pr-status/pr-status-pill";
 import { useActiveOrg } from "lib/query/auth.queries";
@@ -95,6 +96,15 @@ function PRTopBar({
       <PrStatusPill status={status} density="comfortable" />
 
       <RunAnalysisButton applicationId={applicationId} prNumber={prNumber} />
+
+      <Button
+        variant="accent"
+        size="sm"
+        render={<AppLink to="/app/$appSlug/pull-requests/$prNumber/fix" params={{ prNumber }} />}
+      >
+        <RobotIcon size={14} weight="bold" />
+        Fix issues
+      </Button>
 
       {prUrl != null && (
         <a href={prUrl} target="_blank" rel="noopener noreferrer">

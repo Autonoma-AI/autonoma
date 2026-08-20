@@ -1,5 +1,6 @@
 export { Temporal } from "./temporal";
 export { Claude } from "./claude";
+export { OpenAI } from "./openai";
 export { Cursor } from "./cursor";
 export { Google } from "./google";
 export { Microsoft } from "./microsoft";

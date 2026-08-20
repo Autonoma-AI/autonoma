@@ -39,9 +39,10 @@ export async function loadAnalysisCommentInput(snapshotId: string): Promise<Load
     // `run` is this snapshot's own plane summary; handing it to the ledger keeps the verdict from summarizing the
     // same snapshot's findings a second time (the branch's latest report IS this run in the comment path).
     const [ledger, run] = await Promise.all([analysis.branch(), analysis.planeSummary()]);
-    const [{ verdict, openBugs }, coverageIssues] = await Promise.all([
+    const [{ verdict, openBugs }, coverageIssues, openIssueCount] = await Promise.all([
         ledger.verdictWithOpenBugs({ snapshotId: analysis.snapshotId, summary: run }),
         analysis.clientOwnedCoverageIssues(),
+        ledger.openIssueCount(),
     ]);
 
     const input = {
@@ -52,12 +53,14 @@ export async function loadAnalysisCommentInput(snapshotId: string): Promise<Load
         coverage: run.coverage,
         coverageIssues: coverageIssues.map((issue) => toCoverageCard(issue)),
         bugIssues: toBugIssues(openBugs),
+        openIssueCount,
     };
     logger.info("Loaded analysis PR comment input", {
         extra: {
             bugIssueCount: input.bugIssues.length,
             flowCount: input.flows.length,
             coverageIssueCount: input.coverageIssues.length,
+            openIssueCount,
         },
     });
     return input;
@@ -87,7 +90,6 @@ function toBugIssues(issues: Issue[]): AnalysisCommentIssue[] {
         return {
             id: issue.id,
             title: issue.title,
-            expectedBehavior: issue.expectedBehavior,
             actualBehavior: issue.actualBehavior,
             screenshotKey: issue.primaryScreenshot?.s3Key,
             clipKey: instance?.clipKey,

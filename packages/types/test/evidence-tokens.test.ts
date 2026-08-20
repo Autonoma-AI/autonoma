@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { extractEvidenceAssetIds, stripUnbackedNarrativeImages } from "../src/schemas/evidence-tokens";
+import {
+    extractEvidenceAssetIds,
+    flattenNarrativeTokens,
+    stripUnbackedNarrativeImages,
+} from "../src/schemas/evidence-tokens";
 
 describe("extractEvidenceAssetIds", () => {
     it("extracts the assetId from an evidence image token", () => {
@@ -64,5 +68,45 @@ describe("stripUnbackedNarrativeImages", () => {
         const result = stripUnbackedNarrativeImages("text ![](evidence:x) more ![](a/b.png)", new Set());
         expect(result.markdown).toBe("text  more ");
         expect(result.strippedSrcs).toEqual(["evidence:x", "a/b.png"]);
+    });
+});
+
+describe("flattenNarrativeTokens", () => {
+    const resolvers = {
+        issueUrl: (id: string) => (id === "issue_cart" ? "https://autonoma.app/issues/issue_cart" : undefined),
+        evidenceUrl: (id: string) => (id === "s1-before" ? "https://s3.example/shot.png?sig=1" : undefined),
+    };
+
+    it("turns an issue token into a real link a reader outside the app can follow", () => {
+        expect(flattenNarrativeTokens("See [the cart bug](issue:issue_cart).", resolvers)).toBe(
+            "See [the cart bug](https://autonoma.app/issues/issue_cart).",
+        );
+    });
+
+    it("turns an evidence image into its signed URL, so a vision-capable agent can fetch the frame", () => {
+        expect(flattenNarrativeTokens("![empty cart](evidence:s1-before)", resolvers)).toBe(
+            "![empty cart](https://s3.example/shot.png?sig=1)",
+        );
+    });
+
+    it("degrades a finding token to its label - a finding slug names nothing outside the app", () => {
+        expect(flattenNarrativeTokens("as [checkout-guest](finding:checkout-guest) showed", resolvers)).toBe(
+            "as checkout-guest showed",
+        );
+    });
+
+    it("degrades an unresolvable id to its label rather than leaving a dangling link", () => {
+        expect(flattenNarrativeTokens("[a ghost](issue:issue_gone) and ![x](evidence:nope)", resolvers)).toBe(
+            "a ghost and x",
+        );
+    });
+
+    it("leaves ordinary links and images alone", () => {
+        const markdown = "[docs](https://docs.autonoma.app) and ![shot](https://example.com/a.png)";
+        expect(flattenNarrativeTokens(markdown, resolvers)).toBe(markdown);
+    });
+
+    it("degrades every token when no resolver is supplied", () => {
+        expect(flattenNarrativeTokens("[the cart bug](issue:issue_cart)")).toBe("the cart bug");
     });
 });

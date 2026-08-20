@@ -1,12 +1,11 @@
 import { MERGE_GATE_SKIP_COMMAND } from "@autonoma/github/check";
-import { buildAgentHandoffLinks, capHandoffPrompt, SEE_PREVIEW_CTA_LABEL } from "@autonoma/github/comment";
+import { FIX_IT_CTA_LABEL, SEE_PREVIEW_CTA_LABEL } from "@autonoma/github/comment";
 import type {
     AutonomaCommentBug,
     AutonomaCommentCta,
     AutonomaCommentEvidence,
     AutonomaCommentFlow,
     AutonomaCommentFlowGroup,
-    AutonomaCommentHandoff,
     AutonomaCommentNote,
     AutonomaCommentPayload,
     AutonomaCommentState,
@@ -24,7 +23,9 @@ import {
     analysisVerdictHeadline,
     buildAnalysisFindingUrl,
     buildAnalysisIssueUrl,
+    buildAutonomaMcpHint,
     buildPreviewFrontDoorUrl,
+    buildPrFixUrl,
     buildPrPageUrl,
 } from "@autonoma/types";
 
@@ -123,8 +124,6 @@ export interface AnalysisCommentIssue {
     /** The branch-scoped issue id the issue-detail page is keyed on. */
     id: string;
     title: string;
-    /** The Expected side of the case. Not on the card (which leads with what broke) but in the handoff prompt. */
-    expectedBehavior?: string;
     /** The Actual side of the case, shown as the card's description. */
     actualBehavior: string;
     /** `s3://` primary-screenshot key - the issue's own hero frame, and the fallback media when there is no clip. */
@@ -167,6 +166,14 @@ export interface AnalysisCommentInput {
     coverage?: CoverageSummary;
     /** The open issues behind this run's client-owned gaps - what to fix, in the Reporter's words. */
     coverageIssues?: AnalysisCommentCoverageIssue[];
+    /**
+     * Every open issue on the BRANCH, any kind - what gates the FIX IT button.
+     *
+     * Not derivable from the cards above: `coverageIssues` is this run's client-owned gaps, so an environment
+     * issue still open from an earlier commit that this run did not re-hit has no card, and gating on the cards
+     * would hide the button while the page behind it still lists that issue.
+     */
+    openIssueCount?: number;
     /** True when the merge gate is live for this org and the verdict blocks the PR; drives the skip-instruction callout. */
     mergeGateBlocking?: boolean;
     /** The Reporter's title. Empty on a report written before the Reporter authored one. */
@@ -218,6 +225,9 @@ export async function buildAnalysisCommentPayload(
     if (previewFrontDoorUrl != null) {
         ctas.push({ label: SEE_PREVIEW_CTA_LABEL, href: previewFrontDoorUrl });
     }
+    if (countOpenIssues(input) > 0) {
+        ctas.push({ label: FIX_IT_CTA_LABEL, href: buildFixUrl(context) });
+    }
 
     return {
         state,
@@ -227,7 +237,7 @@ export async function buildAnalysisCommentPayload(
         headline: input.headline ?? analysisVerdictHeadline(input.verdict),
         summary: input.mergeGateBlocking === true ? MERGE_GATE_SKIP_CALLOUT : undefined,
         flowGroups: buildFlowGroups(input, context, flows, coverageCards),
-        handoff: input.bugIssues.length > 0 ? buildHandoff(input.bugIssues, context) : undefined,
+        agentHint: buildAutonomaMcpHint({ repoFullName: context.repoFullName, prNumber: context.prNumber }),
         commitRef: context.commitSha.slice(0, 7),
         assetBaseUrl: context.assetBaseUrl,
         ctas,
@@ -392,12 +402,21 @@ function toCoverageCardBug(
     }));
 }
 
-/** The in-app PR overview URL - the "Open in Autonoma" CTA, and the handoff prompt's full-report link. */
+/** The in-app PR overview URL - the "Open in Autonoma" CTA. */
 function buildPrUrl(context: AnalysisCommentContext): string {
     return buildPrPageUrl(context.appBaseUrl, context.appSlug, context.prNumber);
 }
 
-/** The branch-scoped issue-detail URL - the card's title link and the handoff prompt's "Issue details". */
+/** The in-app coding-agent handoff page - the "FIX IT" CTA. */
+function buildFixUrl(context: AnalysisCommentContext): string {
+    return buildPrFixUrl(context.appBaseUrl, context.appSlug, context.prNumber);
+}
+
+function countOpenIssues(input: AnalysisCommentInput): number {
+    return input.openIssueCount ?? input.bugIssues.length + (input.coverageIssues?.length ?? 0);
+}
+
+/** The branch-scoped issue-detail URL - the card's title link. */
 function buildIssueUrl(issue: AnalysisCommentIssue, context: AnalysisCommentContext): string {
     return buildAnalysisIssueUrl(context.appBaseUrl, context.appSlug, context.prNumber, issue.id);
 }
@@ -407,56 +426,6 @@ function buildReplayUrl(issue: AnalysisCommentIssue, context: AnalysisCommentCon
     if (issue.replay == null) return undefined;
     const { snapshotId, findingId } = issue.replay;
     return buildAnalysisFindingUrl(context.appBaseUrl, context.appSlug, context.prNumber, snapshotId, findingId);
-}
-
-/**
- * The "hand off to a coding agent" block: a paste-ready brief in a copy-buttoned code fence plus prefilled
- * "open in <agent>" deep-links. This is where fix guidance belongs - the cards diagnose (expected/actual +
- * suspected cause), and the reader's own agent decides what to change, with the grounded evidence in hand.
- *
- * Built from the branch's open BUG issues, matching the cards, so the prompt and the comment always agree.
- */
-function buildHandoff(issues: AnalysisCommentIssue[], context: AnalysisCommentContext): AutonomaCommentHandoff {
-    const prompt = capHandoffPrompt(buildHandoffPrompt(issues, context), buildPrUrl(context));
-    return { prompt, links: buildAgentHandoffLinks(prompt, context.repoFullName) };
-}
-
-function buildHandoffPrompt(issues: AnalysisCommentIssue[], context: AnalysisCommentContext): string {
-    const header = [
-        `Fix the following bug(s) Autonoma found in pull request ${context.repoFullName}#${context.prNumber} (commit ${context.commitSha.slice(0, 7)}).`,
-        "Each issue gives what the app should have done, what it actually did, a hedged suspected cause with the file:line evidence behind it, and a link to the run that reproduces it. The suspected cause is a lead, not a verdict - confirm it against the code before changing anything. Apply the fixes, then re-run the affected flows to confirm.",
-        // The in-app links below need an Autonoma login; the MCP is the channel an agent can read
-        // these issues through. `--scope user` matters: the default (`local`) binds the server to
-        // whatever directory the command ran in, and the tools then appear to be missing.
-        `Live issues via MCP: connect the Autonoma MCP, then call \`get_analysis(repoFullName="${context.repoFullName}", prNumber=${context.prNumber})\` for these issues + evidence live; it also exposes this PR's deploy status and build/app logs. If it is not connected, do not install it yourself: ask the user to run \`claude mcp add --transport http --scope user autonoma https://api.autonoma.app/v1/mcp\` then \`claude mcp login autonoma\` in their own terminal (or use their client's MCP config), and tell them to restart you afterwards - a running session does not pick up a server added or signed in underneath it. Without a browser, send an Autonoma API key as \`Authorization: Bearer <key>\` instead.`,
-    ].join("\n\n");
-    const rendered = issues.map((issue, index) => renderIssueForPrompt(issue, index + 1, context));
-    return [header, ...rendered, `Full report (login required): ${buildPrUrl(context)}`].join("\n\n");
-}
-
-function renderIssueForPrompt(issue: AnalysisCommentIssue, index: number, context: AnalysisCommentContext): string {
-    const parts = [`## ${index}. ${issue.title}`];
-    if (issue.expectedBehavior != null && issue.expectedBehavior !== "") {
-        parts.push(`Expected: ${issue.expectedBehavior}`);
-    }
-    parts.push(`Actual: ${issue.actualBehavior}`);
-    if (issue.suspectedCause != null) {
-        parts.push(`Suspected cause: ${issue.suspectedCause.explanation}`);
-        const refs = issue.suspectedCause.codeReferences.map(renderCodeReferenceForPrompt);
-        if (refs.length > 0) parts.push(`Evidence:\n${refs.join("\n")}`);
-    }
-    parts.push(`Issue details: ${buildIssueUrl(issue, context)}`);
-    const replayUrl = buildReplayUrl(issue, context);
-    if (replayUrl != null) parts.push(`Run that reproduces it: ${replayUrl}`);
-    return parts.join("\n");
-}
-
-function renderCodeReferenceForPrompt(ref: SuspectedCause["codeReferences"][number]): string {
-    const repoPrefix = ref.repo != null ? `${ref.repo} › ` : "";
-    const location = `${repoPrefix}${ref.file}${ref.lines != null ? `:${ref.lines}` : ""}`;
-    const head = `- ${location}`;
-    if (ref.snippet == null || ref.snippet === "") return head;
-    return `${head}\n\`\`\`\n${ref.snippet}\n\`\`\``;
 }
 
 /**

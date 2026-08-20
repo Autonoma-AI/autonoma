@@ -1,5 +1,4 @@
-export { buildAgentHandoffLinks, capHandoffPrompt, MAX_HANDOFF_PROMPT_CHARS } from "./handoff-links";
-export { renderMarkdown, SEE_PREVIEW_CTA_LABEL } from "./markdown";
+export { FIX_IT_CTA_LABEL, renderMarkdown, SEE_PREVIEW_CTA_LABEL } from "./markdown";
 export { payloadBuilder } from "./payload";
 export { resolveCommentAssetBaseUrl } from "./assets";
 export { hasGoneLive } from "./onboarding-gate";
@@ -10,7 +9,6 @@ export type {
     AutonomaCommentBug,
     AutonomaCommentCta,
     AutonomaCommentEvidence,
-    AutonomaCommentHandoff,
     AutonomaCommentFlow,
     AutonomaCommentFlowGroup,
     AutonomaCommentNote,

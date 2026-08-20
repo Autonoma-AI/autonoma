@@ -9,6 +9,8 @@ export * from "./sdk-endpoint";
 export * from "./org-domain";
 export * from "./app-links";
 export * from "./agent-handoff-links";
+export * from "./agent-guidance";
+export * from "./agent-handoff-prompt";
 export * from "./sdk-error-signals";
 export * from "./sdk-failure";
 export * from "./designated-run";

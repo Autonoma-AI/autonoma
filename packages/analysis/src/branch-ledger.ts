@@ -109,6 +109,15 @@ export class BranchLedger {
         });
     }
 
+    public async openIssueCount(): Promise<number> {
+        return this.db.analysisIssue.count({
+            where: {
+                branchId: this.branchId,
+                resolvedAt: issueStatusFilter(analysisIssueStatusSchema.enum.open),
+            },
+        });
+    }
+
     /** Every open issue with its derived covered-test set - the re-verification input, all kinds. */
     public async coveredTestsForOpenIssues(): Promise<CoveredIssue[]> {
         const issues = await this.openIssues();

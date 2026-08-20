@@ -1,6 +1,12 @@
 import { NotFoundError } from "@autonoma/errors";
 import { ANALYSIS_RUN_SOURCE } from "@autonoma/github/check";
 import { logger as rootLogger } from "@autonoma/logger";
+import {
+    AUTONOMA_ELEVATOR_PITCH,
+    describeIssueKindRouting,
+    describeRecheckLoop,
+    FALSE_POSITIVE_GUIDANCE,
+} from "@autonoma/types";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { MergeGateService } from "../github/merge-gate.service";
@@ -34,7 +40,7 @@ const MCP_ACTOR_LOGIN = "autonoma-mcp";
  * broken preview - so a Cursor / Codex / Claude agent that has never heard of
  * Autonoma still knows the recommended flow without a per-client skill.
  */
-export const DEBUG_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a per-PR preview deployment of your app and reviews the result. When a preview fails to build or deploy, or a test fails because the app is broken, these tools let you read the live evidence and fix the cause in this repo.
+export const DEBUG_INSTRUCTIONS = `${AUTONOMA_ELEVATOR_PITCH} When a preview fails to build or deploy, or a test fails because the app is broken, these tools let you read the live evidence and fix the cause in this repo.
 
 Every tool names the app either by repoFullName ("owner/repo") or by applicationId - send one, never both. You almost never need to ask the user for either:
 - repoFullName is this repository's GitHub remote. Infer it from the working directory (e.g. run \`git remote get-url origin\` and parse "owner/repo"). Use that directly.
@@ -45,13 +51,11 @@ You do NOT need GitHub access - repoFullName is just how Autonoma identifies you
 Start with the analysis: call get_analysis(repoFullName, prNumber) to read what Autonoma found on the PR - the run's summary, which tests it selected and why, and every open issue with what should have happened, what did happen, file:line code evidence, and a screenshot/clip of the failing run. That is usually enough to fix the problem. Use the deploy-debug flow below instead when a preview fails to BUILD or DEPLOY (not a test/app bug).
 
 Each issue's kind tells you where its fix lives, so route on it rather than assuming everything is a code change:
-- bug: the app misbehaved. Fix it in this repo and push.
-- environment: the preview could not run properly (a missing secret, a broken service). Fix it with the deploy tools below - get_secret_status / set_secret / edit_previewkit_config - no repo change needed.
-- scenario: the test data was missing or wrong. Fix it with the recipe tools below - list_scenarios / get_recipe / dry_run_scenario - which take effect with no redeploy.
+${describeIssueKindRouting()}
 
-A fourth outcome has no fix in this repo: the issue is not real, or the run went wrong for a reason no future run should repeat. When you conclude an issue is a FALSE POSITIVE - the behavior it flagged is intended - say so where the next run will read it: get_app_instructions(repoFullName), then update_app_instructions with that point merged into testScopeGuidelines. Use customInstructions the same way for a quirk of the app the agent has to know to get through a flow. Both are the user's settings text, so merge into what is there and pass the fingerprint you read; do not replace it wholesale. Only record what will still be true next month - not a note about the PR in front of you.
+${FALSE_POSITIVE_GUIDANCE}
 
-When you have fixed the cause and pushed, call start_analysis(repoFullName, prNumber) to ask Autonoma to re-check the PR against its preview - so you can confirm the fix from here without switching to GitHub to comment /start analysis. It no-ops quietly if the gate/activation is not enabled for the org; poll get_analysis afterward for the new verdict.
+${describeRecheckLoop()}
 
 Recommended flow when a PREVIEW fails to build or deploy (for a test or app failure, get_analysis above is the entry point):
 1. Call get_deploy_status(repoFullName, prNumber) to see which service is unhealthy and whether it failed at build or at runtime.
@@ -407,10 +411,9 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "selected and why) plus every OPEN issue on the PR - each with what should have happened, what did " +
                 "happen, a hedged suspected cause with file:line code evidence, signed screenshot/clip URLs, and the " +
                 "tests it covers. Start here when Autonoma flagged something on a PR. It is read live, so it can be " +
-                "more current than the PR comment. Each issue's `kind` says WHERE the fix lives: `bug` is in this " +
-                "repo (edit the code and push); `environment` is in the preview's config (diagnose_deploy, " +
-                "set_secret, edit_previewkit_config); `scenario` is in the test data (list_scenarios, get_recipe, " +
-                'dry_run_scenario). `status: "in_progress"` means a run is going - call again shortly. ' +
+                "more current than the PR comment. Each issue's `kind` says WHERE the fix lives:\n" +
+                `${describeIssueKindRouting()}\n` +
+                '`status: "in_progress"` means a run is going - call again shortly. ' +
                 '`status: "failed"` means the run never landed (with a `failureReason`, e.g. the preview was ' +
                 'unreachable), so there is nothing to fix from it - do NOT read it as "no problems found". ' +
                 '`status: "complete"` with no issues and a `passed` verdict is a clean PR. A `newerRun` field means a ' +
