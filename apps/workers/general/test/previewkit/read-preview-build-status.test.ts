@@ -104,8 +104,7 @@ class PreviewBuildStatusHarness implements IntegrationHarness {
                         repository: repoFullName,
                         path: ".",
                         port: 3000,
-                        resourcesCpu: "250m",
-                        resourcesMemory: "1Gi",
+                        resourcesTier: "medium",
                     },
                     select: { id: true },
                 });

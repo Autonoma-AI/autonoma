@@ -1,13 +1,12 @@
-<p align="center">
-  <img src=".github/assets/banner.webp" alt="Autonoma - an agent reads your pull request, runs your app, and reports what broke" width="100%">
-</p>
-
 <div align="center">
 
+<br/>
+<br/>
+
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/wordmark-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset=".github/assets/wordmark-light.svg">
-  <img alt="Autonoma" src=".github/assets/wordmark-light.svg" width="240">
+ <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-dark.png">
+ <source media="(prefers-color-scheme: light)" srcset=".github/assets/logo-light.png">
+ <img alt="Autonoma" src=".github/assets/logo-light.png">
 </picture>
 
 <br/>

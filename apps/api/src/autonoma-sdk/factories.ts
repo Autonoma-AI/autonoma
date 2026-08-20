@@ -1031,8 +1031,7 @@ async function resolveSeededPreviewkitAppId(
             repository: config.apps[0]?.repository ?? SEEDED_PREVIEW_REPOSITORY,
             path: ".",
             port: port ?? DEFAULT_PREVIEW_APP_PORT,
-            resourcesCpu: STANDARD_RESOURCES.app.cpu,
-            resourcesMemory: STANDARD_RESOURCES.app.memory,
+            resourcesTier: STANDARD_RESOURCES.app.tier,
         },
         select: { id: true },
     });

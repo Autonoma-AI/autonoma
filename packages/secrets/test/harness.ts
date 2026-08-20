@@ -92,8 +92,7 @@ export class SecretsHarness implements IntegrationHarness {
                 repository: "acme/web",
                 path: ".",
                 port: 3000,
-                resourcesCpu: "250m",
-                resourcesMemory: "1Gi",
+                resourcesTier: "medium",
             },
             select: { id: true },
         });

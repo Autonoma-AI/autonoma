@@ -36,8 +36,7 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
                         repository: "acme/web",
                         path: ".",
                         port: 3000,
-                        resourcesCpu: "250m",
-                        resourcesMemory: "1Gi",
+                        resourcesTier: "medium",
                     },
                 });
                 const provider = new FakeKeyProvider();
